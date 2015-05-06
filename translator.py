@@ -48,7 +48,7 @@ class Translator(object):
         return [[re.compile(r, re.DOTALL), s] for r, s in subs]
 
     def no_compile_subs(self, ticketId):
-        print 'ticketId',ticketId
+        #print 'ticketId',ticketId
         subs = [[r"\[\[Image\((\S*?)\,\s{0,}\S*?\)\]\]", r"![\1]({attachmentsPrefix}/{ticketId}/\1)".format(attachmentsPrefix=self.attachmentsPrefix, ticketId=ticketId)],
                 [r"\[\[Image\((\S*?)\)\]\]", r"![\1]({attachmentsPrefix}/{ticketId}/\1)".format(attachmentsPrefix=self.attachmentsPrefix, ticketId=ticketId)],
                 [r"attachment:(\S*?)", r"{attachmentsPrefix}/{ticketId}/\1".format(attachmentsPrefix=self.attachmentsPrefix, ticketId=ticketId)]]
