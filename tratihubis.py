@@ -247,6 +247,7 @@ import sys
 import token
 import tokenize
 import datetime
+import dateutil.parser
 
 from translator import Translator, NullTranslator
 
@@ -439,11 +440,11 @@ def _tracTicketMaps(ticketsCsvPath):
     Sequence of maps where each items describes the relevant fields of each row from the tickets CSV exported
     from Trac.
     """
-    EXPECTED_COLUMN_COUNT = 12
+    EXPECTED_COLUMN_COUNT = 15
     _log.info(u'read ticket details from "%s"', ticketsCsvPath)
     with open(ticketsCsvPath, "rb") as ticketCsvFile:
         csvReader = _UnicodeCsvReader(ticketCsvFile)
-        hasReadHeader = True
+        hasReadHeader = False
         for rowIndex, row in enumerate(csvReader):
             columnCount = len(row)
             if columnCount != EXPECTED_COLUMN_COUNT:
@@ -461,10 +462,21 @@ def _tracTicketMaps(ticketsCsvPath):
                     'resolution': row[6],
                     'summary': row[7],
                     'description': row[8],
-                    'createdtime': datetime.datetime.fromtimestamp(long(row[9])),
-                    'modifiedtime': datetime.datetime.fromtimestamp(long(row[10])),
-                    'component': row[11]
+#                    'createdtime': datetime.datetime.fromtimestamp(long(row[9])),
+#                    'modifiedtime': datetime.datetime.fromtimestamp(long(row[10])),
+                    'createdtime': dateutil.parser.parse(str(row[9])),
+                    'modifiedtime': dateutil.parser.parse(str(row[10])),
+                    'component': row[11],
+                    'priority': row[12],
+                    'keywords': row[13],
+                    'cc': row[14]
                 }
+                if ticketMap['keywords'] and str(ticketMap['keywords']).strip() != "":
+                    kws = str(ticketMap['keywords']).strip()
+                    kwArray = []
+                    for kw in ticketMap['keywords'].split():
+                        kwArray.append(kw.strip())
+                    ticketMap['keywords'] = kwArray
                 yield ticketMap
             else:
                 hasReadHeader = True
@@ -503,7 +515,7 @@ def _createTicketToCommentsMap(commentsCsvPath):
         _log.info(u'read ticket comments from "%s"', commentsCsvPath)
         with open(commentsCsvPath, "rb") as commentsCsvFile:
             csvReader = _UnicodeCsvReader(commentsCsvFile)
-            hasReadHeader = True
+            hasReadHeader = False
             for rowIndex, row in enumerate(csvReader):
                 columnCount = len(row)
                 if columnCount != EXPECTED_COLUMN_COUNT:
@@ -513,7 +525,8 @@ def _createTicketToCommentsMap(commentsCsvPath):
                 if hasReadHeader:
                     commentMap = {
                         'id': long(row[0]),
-                        'date': datetime.datetime.fromtimestamp(long(row[1])),
+#                        'date': datetime.datetime.fromtimestamp(long(row[1])),
+                        'date': dateutil.parser.parse(str(row[1])),
                         'author': row[2],
                         'body': row[3],
                     }
@@ -549,7 +562,7 @@ def _createTicketsToAttachmentsMap(attachmentsCsvPath, attachmentsPrefix):
 
     with open(attachmentsCsvPath, "rb") as attachmentsCsvFile:
         attachmentsReader = _UnicodeCsvReader(attachmentsCsvFile)
-        hasReadHeader = True
+        hasReadHeader = False
         for rowIndex, row in enumerate(attachmentsReader):
             columnCount = len(row)
             if columnCount != EXPECTED_COLUMN_COUNT:
@@ -563,7 +576,8 @@ def _createTicketsToAttachmentsMap(attachmentsCsvPath, attachmentsPrefix):
                     'id': long(id_string),
                     'author': row[3],
                     'filename': row[1],
-                    'date': datetime.datetime.fromtimestamp(long(row[2])),
+#                    'date': datetime.datetime.fromtimestamp(long(row[2])),
+                    'date': dateutil.parser.parse(str(row[2])),
                     'fullpath': u'%s/%s/%s' % (attachmentsPrefix, row[0], row[1]),
                     }
                     if not attachmentMap['id'] in result:
@@ -592,7 +606,7 @@ def migrateTickets(hub, repo, defaultToken, ticketsCsvPath,
                    firstTicketIdToConvert=1, lastTicketIdToConvert=0,
                    labelMapping=None, userMapping="*:*",
                    attachmentsPrefix=None, pretend=True,
-                   trac_url=None, convert_text=False, ticketsToRender=False, addComponentLabels=False):
+                   trac_url=None, convert_text=False, ticketsToRender=False, addComponentLabels=False, userLoginMapping="*:*"):
     
     assert hub is not None
     assert repo is not None
@@ -604,6 +618,7 @@ def migrateTickets(hub, repo, defaultToken, ticketsCsvPath,
     existingIssues = _createIssueMap(repo)
     existingMilestones = _createMilestoneMap(repo)
     tracToGithubUserMap = _createTracToGithubUserMap(hub, userMapping, defaultToken)
+    tracToGithubLoginMap = _createTracToGithubLoginMap(hub, userLoginMapping, hub.get_user().login)
     labelTransformations = _LabelTransformations(repo, labelMapping)
     ticketsToIssuesMap = createTicketsToIssuesMap(ticketsCsvPath, existingIssues, firstTicketIdToConvert, lastTicketIdToConvert)
 
@@ -617,13 +632,15 @@ def migrateTickets(hub, repo, defaultToken, ticketsCsvPath,
     def possiblyAddLabel(labels, tracField, tracValue):
         label = labelTransformations.labelFor(tracField, tracValue)
         if label is not None:
-            _log.info('  add label %s', label.name)
+            _log.info('  add label "%s"', label.name)
             if not pretend:
                 labels.append(label.name)
 
     fakeIssueId = 1 + len(existingIssues)
     for ticketMap in _tracTicketMaps(ticketsCsvPath):
+        _log.debug("Rate limit status: %s resets at %s", hub.rate_limiting, datetime.datetime.fromtimestamp(hub.rate_limiting_resettime))
         ticketId = ticketMap['id']
+        _log.debug("Looking at ticket %s", ticketId)
         title = ticketMap['summary']
         renderTicket = True
         if ticketsToRender:
@@ -632,16 +649,21 @@ def migrateTickets(hub, repo, defaultToken, ticketsCsvPath,
         if renderTicket and (ticketId >= firstTicketIdToConvert) \
                 and ((ticketId <= lastTicketIdToConvert) or (lastTicketIdToConvert == 0)):
             body = ticketMap['description']
-            tracOwner = ticketMap['reporter'].strip()
-            token = _tokenFor(hub, tracToGithubUserMap, tracOwner)
-            _hub = github.Github(token)
+            tracReporter = ticketMap['reporter'].strip()
+            tokenReporter = _tokenFor(hub, tracToGithubUserMap, tracReporter)
+            _hub = github.Github(tokenReporter)
+            tracOwner = ticketMap['owner'].strip()
+            tokenOwner = _tokenFor(hub, tracToGithubUserMap, tracOwner)
+            _hubOwner = github.Github(tokenOwner)
+            _log.debug("Repo will be %s", '{0}/{1}'.format(repo.owner.login, repo.name))
             _repo = _hub.get_repo('{0}/{1}'.format(repo.owner.login, repo.name))
-            githubAssignee = _hub.get_user()
+            githubAssignee = _hubOwner.get_user()
+            ghAssigneeLogin = _loginFor(tracToGithubLoginMap, tracOwner)
             milestoneTitle = ticketMap['milestone'].strip()
             if len(milestoneTitle) != 0:
                 if milestoneTitle not in existingMilestones:
                     _log.info(u'add milestone: %s', milestoneTitle)
-                    print existingMilestones
+                    _log.info(u'Existing milestones: %s', existingMilestones)
                     if not pretend:
                         newMilestone = repo.create_milestone(milestoneTitle)
                     else:
@@ -665,28 +687,47 @@ def migrateTickets(hub, repo, defaultToken, ticketsCsvPath,
             legacyInfo = u"\n\n _Imported from trac ticket %s,  created by %s on %s, last modified: %s_\n" \
                          % (ticketString, ticketMap['reporter'], ticketMap['createdtime'].strftime(dateformat),
                          ticketMap['modifiedtime'].strftime(dateformat))
+            if ticketMap['cc'] and str(ticketMap['cc']).strip() != "":
+                legacyInfo += u"   CCing: %s" % ticketMap['cc']
 
             body += legacyInfo
 
             if ticketsToRender:
-                print 'body of ticket:\n', body
+                _log.info(u'body of ticket:\n%s', body)
             
+            githubAssigneeeLogin = None
+            if githubAssignee:
+                githubAssigneeLogin = githubAssignee.login
+            elif ghAssigneeLogin:
+                githubAssigneeLogin = ghAssigneeLogin
             if not pretend:
                 if milestone is None:
-                    issue = _repo.create_issue(title, body)#, githubAssignee)
+                    if githubAssigneeLogin and githubAssigneeLogin != repo.owner.login:
+                        issue = _repo.create_issue(title, body, assignee=githubAssigneeLogin)
+                    else:
+                        issue = _repo.create_issue(title, body)#, githubAssignee)
                 else:
-                    issue = _repo.create_issue(title, body, milestone=milestone)
+                    if githubAssigneeLogin and githubAssigneeLogin != repo.owner.login:
+                        issue = _repo.create_issue(title, body, assignee=githubAssigneeLogin, milestone=milestone)
+                    else:
+                        issue = _repo.create_issue(title, body, milestone=milestone)
             else:
                 issue = _FakeIssue(fakeIssueId, title, body, 'open')
                 fakeIssueId += 1
-
-            _log.info(u'  issue #%s: owner=%s-->%s; milestone=%s (%d)',
-                    issue.number, tracOwner, githubAssignee.name, milestoneTitle, milestoneNumber)
-
+                
+            if githubAssigneeLogin and githubAssigneeLogin != repo.owner.login:
+                _log.info(u'  issue #%s: owner=%s-->%s; milestone=%s (%d)',
+                          issue.number, tracOwner, githubAssigneeLogin, milestoneTitle, milestoneNumber)
+            else:
+                _log.info(u'  issue #%s: owner=%s-->%s; milestone=%s (%d)',
+                          issue.number, tracOwner, githubAssignee.name, milestoneTitle, milestoneNumber)
 
             labels = []
             possiblyAddLabel(labels, 'type', ticketMap['type'])
             possiblyAddLabel(labels, 'resolution', ticketMap['resolution'])
+            possiblyAddLabel(labels, 'priority', ticketMap['priority'])
+            for kw in ticketMap['keywords']:
+                possiblyAddLabel(labels, 'keyword', kw)
             
             if addComponentLabels and ticketMap['component'] != 'None':
                 if not pretend:
@@ -698,6 +739,7 @@ def migrateTickets(hub, repo, defaultToken, ticketsCsvPath,
                 _hub = github.Github(defaultToken)
                 _repo = _hub.get_repo('{0}/{1}'.format(repo.owner.login, repo.name))
                 _issue = _repo.get_issue(issue.number)
+                _log.debug("Setting labels on issue %d: %s", issuer.number, labels)
                 _issue.edit(labels=labels)
                 
             attachmentsToAdd = tracTicketToAttachmentsMap.get(ticketId)
@@ -705,37 +747,52 @@ def migrateTickets(hub, repo, defaultToken, ticketsCsvPath,
                 for attachment in attachmentsToAdd:
                     token = _tokenFor(repo, tracToGithubUserMap, attachment['author'], False)
                     attachmentAuthor = _userFor(token)
-                    legacyInfo = u"_%s attached [%s](%s) on %s_\n"  \
-                        % (attachment['author'], attachment['filename'], attachment['fullpath'], attachment['date'].strftime(dateformat))
-                    _log.info(u'  added attachment from %s', attachmentAuthor)
+                    _hub = github.Github(token)
+                    _repo = _hub.get_repo('{0}/{1}'.format(repo.owner.login, repo.name))
+                    attachmentAuthorLogin = _loginFor(tracToGithubLoginMap, attachment['author'])
+                    if attachmentAuthorLogin and attachmentAuthorLogin != hub.get_user().login:
+                        legacyInfo = u"_%s (%s) attached [%s](%s) on %s_\n"  \
+                                     % (attachment['author'], attachmentAuthorLogin, attachment['filename'], attachment['fullpath'], attachment['date'].strftime(dateformat))
+                        _log.info(u'  added attachment from %s', attachmentAuthorLogin)
+                    else:
+                        legacyInfo = u"_%s attached [%s](%s) on %s_\n"  \
+                                     % (attachment['author'], attachment['filename'], attachment['fullpath'], attachment['date'].strftime(dateformat))
+                        _log.info(u'  added attachment from %s', attachmentAuthor.login)
 
                     if ticketsToRender:
-                        print 'attachment legacy info:\n',legacyInfo
+                        _log.info(u'attachment legacy info:\n%s',legacyInfo)
                         
                     if not pretend:
-                        assert issue is not None
-                        issue.create_comment(legacyInfo)
+                        _issue = _repo.get_issue(issue.number)
+                        assert _issue is not None
+                        _issue.create_comment(legacyInfo)
 
             commentsToAdd = tracTicketToCommentsMap.get(ticketId)
             if commentsToAdd is not None:
                 for comment in commentsToAdd:
                     token = _tokenFor(repo, tracToGithubUserMap, comment['author'], False)
                     commentAuthor = _userFor(token)
+                    commentAuthorLogin = _loginFor(tracToGithubLoginMap, comment['author'])
                     _hub = github.Github(token)
                     _repo = _hub.get_repo('{0}/{1}'.format(repo.owner.login, repo.name))
-
-
                     
-                    commentBody = u"%s\n\n_Trac comment by %s on %s_\n" % (comment['body'], comment['author'], comment['date'].strftime(dateformat))
+                    if commentAuthorLogin and commentAuthorLogin != hub.get_user().login:
+                        commentBody = u"%s\n\n_Trac comment by %s (github user: %s) on %s_\n" % (comment['body'], comment['author'], commentAuthorLogin, comment['date'].strftime(dateformat))
+                        
+                        _log.info(u'  add comment by %s: %r', commentAuthorLogin, _shortened(commentBody))
+                    else:
+                        commentBody = u"%s\n\n_Trac comment by %s on %s_\n" % (comment['body'], comment['author'], comment['date'].strftime(dateformat))
 
-                    _log.info(u'  add comment by %s: %r', commentAuthor, _shortened(commentBody))
+                        _log.info(u'  add comment by %s: %r', commentAuthor.login, _shortened(commentBody))
 
                     commentBody = translator.translate(commentBody, ticketId=ticketId)
 
                     if ticketsToRender:
-                        print 'commentBody:\n',commentBody
+                        _log.info(u'commentBody:\n%s',commentBody)
                     
                     if not pretend:
+                        # Here we use the token from the users map
+                        # so the real github user creates teh comment if possible
                         _issue = _repo.get_issue(issue.number)
                         assert _issue is not None
                         _issue.create_comment(commentBody)
@@ -781,12 +838,14 @@ def _validateGithubUser(hub, tracUser, token):
             _log.debug(u'  check for token "%s"', token)
             _hub = github.Github(token)
             githubUser = _hub.get_user()
-            _log.debug(u'  user is "%s"',)
-        except:
+            _log.debug(u'  user is "%s"', githubUser.login)
+        except Exception, e:
+            import traceback
+            _log.debug("Error from Github API: %s", traceback.format_exc())
             # FIXME: After PyGithub API raises a predictable error, use  "except WahteverException".
             raise _ConfigError(_OPTION_USERS,
-                    u'Trac user "%s" must be mapped to an existing Github users token instead of "%s"'
-                    % (tracUser, githubUser))
+                    u'Trac user "%s" must be mapped to an existing Github users token instead of "%s" = "%s"'
+                    % (tracUser, githubUser, token))
         _validatedGithubTokens.add(token)
 
 
@@ -804,7 +863,7 @@ def _createTracToGithubUserMap(hub, definition, defaultToken):
             # if len(tracUser) == 0:
             #     raise _ConfigError(_OPTION_USERS, u'Trac user must not be empty: "%s"' % mapping)
             if len(token) == 0:
-                raise _ConfigError(_OPTION_USERS, u'Token not be empty: "%s"' % mapping)
+                raise _ConfigError(_OPTION_USERS, u'Token must not be empty: "%s"' % mapping)
             existingMappedGithubUser = result.get(tracUser)
             if existingMappedGithubUser is not None:
                 raise _ConfigError(_OPTION_USERS,
@@ -813,8 +872,46 @@ def _createTracToGithubUserMap(hub, definition, defaultToken):
             result[tracUser] = token
             if token != '*':
                 _validateGithubUser(hub, tracUser, token)
+    for user in result.keys():
+        _log.debug("User token mapping found for: %s", user)
     return result
 
+def _createTracToGithubLoginMap(hub, definition, defaultLogin):
+    result = {}
+    for mapping in definition.split(','):
+        words = [word.strip() for word in mapping.split(':')]
+        if words:
+            if len(words) != 2:
+                raise _ConfigError(_OPTION_USERS,
+                        u'mapping must use syntax "trac-user: github-login" but is: "%s"' % mapping)
+            tracUser, login = words
+            if login == '*':
+                login = defaultLogin
+            # if len(tracUser) == 0:
+            #     raise _ConfigError(_OPTION_USERS, u'Trac user must not be empty: "%s"' % mapping)
+            if len(login) == 0:
+                raise _ConfigError(_OPTION_USERS, u'Login must not be empty: "%s"' % mapping)
+            existingMappedGithubUser = result.get(tracUser)
+            if existingMappedGithubUser is not None:
+                raise _ConfigError(_OPTION_USERS,
+                        u'Trac user "%s" must be mapped to only one login instead of "%s" and "%s"'
+                         % (tracUser, existingMappedGithubUser, login))
+            result[tracUser] = login
+    for user in result.keys():
+        _log.debug("User login mapping found for: %s=%s", user, result.get(user))
+    return result
+
+def _loginFor(tracToGithubLoginMap, tracUser):
+    assert tracToGithubLoginMap is not None
+    assert tracUser is not None
+    result = tracToGithubLoginMap.get(tracUser)
+    if result is None:
+        result = tracToGithubLoginMap.get('*')
+        if result is None:
+            raise _ConfigError(_OPTION_USERS, u'Trac user "%s" must be mapped to a Github user' % (tracUser,))
+    if result == '*':
+        result = tracUser
+    return result
 
 def _tokenFor(hub, tracToGithubUserMap, tracUser, validate=True):
     assert tracToGithubUserMap is not None
@@ -851,6 +948,7 @@ def main(argv=None):
         ticketsCsvPath = _getConfigOption(config, 'tickets', False, 'tickets.csv')
         token = _getConfigOption(config, 'token')
         userMapping = _getConfigOption(config, 'users', False, '*:{0}'.format(token))
+        userLoginMapping = _getConfigOption(config, 'userLogins', False, '*:*')
         trac_url = _getConfigOption(config, 'trac_url', False)
         convert_text = _getConfigOption(config, 'convert_text',
                                         required=False,
@@ -868,6 +966,7 @@ def main(argv=None):
 
         if ticketsToRender:
             ticketsToRender = [long(x) for x in ticketsToRender.split(',')]
+            _log.info("Only rendering tickets %s", ticketsToRender)
 
         if not options.really:
             _log.warning(u'no actions are performed unless command line option --really is specified')
@@ -881,9 +980,9 @@ def main(argv=None):
                        commentsCsvPath, attachmentsCsvPath,
                        userMapping=userMapping,
                        labelMapping=labelMapping,
-                       attachmentsPrefix=attachmentsPrefix,
-                       pretend=not options.really,
-                       trac_url=trac_url, convert_text=convert_text, ticketsToRender=ticketsToRender, addComponentLabels=addComponentLabels)
+                       attachmentsPrefix=attachmentsPrefix, 
+                      pretend=not options.really,
+                       trac_url=trac_url, convert_text=convert_text, ticketsToRender=ticketsToRender, addComponentLabels=addComponentLabels, userLoginMapping=userLoginMapping)
         
         exitCode = 0
     except (EnvironmentError, OSError, _ConfigError, _CsvDataError), error:
