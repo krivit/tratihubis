@@ -619,12 +619,14 @@ def migrateTickets(hub, repo, defaultToken, ticketsCsvPath,
     assert ticketsCsvPath is not None
     assert userMapping is not None
 
+    baseUser = hub.get_user().login
+
     tracTicketToCommentsMap = _createTicketToCommentsMap(commentsCsvPath)
     tracTicketToAttachmentsMap = _createTicketsToAttachmentsMap(attachmentsCsvPath, attachmentsPrefix)
     existingIssues = _createIssueMap(repo)
     existingMilestones = _createMilestoneMap(repo)
     tracToGithubUserMap = _createTracToGithubUserMap(hub, userMapping, defaultToken)
-    tracToGithubLoginMap = _createTracToGithubLoginMap(hub, userLoginMapping, hub.get_user().login)
+    tracToGithubLoginMap = _createTracToGithubLoginMap(hub, userLoginMapping, baseUser)
     labelTransformations = _LabelTransformations(repo, labelMapping)
     ticketsToIssuesMap = createTicketsToIssuesMap(ticketsCsvPath, existingIssues, firstTicketIdToConvert, lastTicketIdToConvert, skipExisting)
 
@@ -687,7 +689,11 @@ def migrateTickets(hub, repo, defaultToken, ticketsCsvPath,
             #_repo = _getRepo(hub, '{0}/{1}'.format(repo.owner.login, repo.name))
             githubAssignee = _hubOwner.get_user()
             ghAssigneeLogin = _loginFor(tracToGithubLoginMap, tracOwner)
-            _log.debug("For ticket %d got tracOwner %s, token %s, hub user's login: %s, ghAssigneeLogin from lookup on tracOwner: %s", ticketId, tracOwner, tokenOwner, githubAssignee.login, ghAssigneeLogin)
+            ghlRaw = tracToGithubLoginMap.get(tracOwner)
+            ghlIsDefault = False
+            if ghlRaw is None or ghlRaw == '*':
+                ghlIsDefault = True
+            _log.debug("For ticket %d got tracOwner %s, token %s, hub user's login: %s, ghAssigneeLogin from lookup on tracOwner: %s, ghlRaw: %s, isDefault: %s", ticketId, tracOwner, tokenOwner, githubAssignee.login, ghAssigneeLogin, ghlRaw, ghlIsDefault)
             milestoneTitle = ticketMap['milestone'].strip()
             if len(milestoneTitle) != 0:
                 if milestoneTitle not in existingMilestones:
@@ -706,10 +712,10 @@ def migrateTickets(hub, repo, defaultToken, ticketsCsvPath,
             _log.info(u'convert ticket #%d: %s', ticketId, _shortened(title))
 
             title = translator.translate(title)
-            #origbody = body
+            origbody = body
             body = translator.translate(body, ticketId=ticketId)
-            #if body != origbody:
-            #    _log.debug("Translated body from '%s' to '%s'", origbody, body)
+            if body != origbody and pretend:
+                _log.debug("Translated body from '%s' to '%s'", origbody, body)
 
             dateformat = "%m-%d-%Y at %H:%M"
             ticketString = '#{0}'.format(ticketId)
@@ -749,22 +755,23 @@ def migrateTickets(hub, repo, defaultToken, ticketsCsvPath,
 
             # Hmm. Nope, the assignee should be a login. That much is true. However, the _repo instance needs to have been created
             # with a token that matches the login.
-
-            if githubAssignee and (tracOwner == 'ahelsing' or githubAssignee.login != 'ahelsing') and ghAssigneeLogin == githubAssignee.login:
-                _log.debug("Will use the token of the owner with login %s", githubAssignee.login)
+            useLogin = None
+            if githubAssignee and ((not ghlIsDefault) or githubAssignee.login != baseUser) and ghAssigneeLogin == githubAssignee.login:
+                useLogin = githubAssignee.login
+                _log.debug("Will use the token of the owner with login %s", useLogin)
             else:
                 _log.debug("Either had no ghAssignee or it is assigned to me by default, so leave it unassigned")
             issue = None
             if not pretend:
                 if milestone is None:
-                    if githubAssignee and (tracOwner == 'ahelsing' or githubAssignee.login != 'ahelsing') and ghAssigneeLogin == githubAssignee.login:
-                        issue = _repo.create_issue(title, body, assignee=ghAssigneeLogin)
+                    if useLogin:
+                        issue = _repo.create_issue(title, body, assignee=useLogin)
                     else:
                         issue = _repo.create_issue(title, body)
                 else:
-                    if githubAssignee and (tracOwner == 'ahelsing' or githubAssignee.login != 'ahelsing') and ghAssigneeLogin == githubAssignee.login:
+                    if useLogin:
 #                    if githubAssigneeLogin:
-                        issue = _repo.create_issue(title, body, assignee=ghAssigneeLogin, milestone=milestone)
+                        issue = _repo.create_issue(title, body, assignee=useLogin, milestone=milestone)
                     else:
                         issue = _repo.create_issue(title, body, milestone=milestone)
             else:
@@ -773,9 +780,9 @@ def migrateTickets(hub, repo, defaultToken, ticketsCsvPath,
             createdCount += 1
                 
 #            if githubAssigneeLogin:
-            if githubAssignee and (tracOwner == 'ahelsing' or githubAssignee.login != 'ahelsing') and ghAssigneeLogin == githubAssignee.login:
+            if useLogin:
                 _log.info(u'  issue #%s: owner=%s-->%s; milestone=%s (%d)',
-                          issue.number, tracOwner, githubAssignee.login, milestoneTitle, milestoneNumber)
+                          issue.number, tracOwner, useLogin, milestoneTitle, milestoneNumber)
             else:
                 _log.info(u'  issue #%s: owner=%s--><unassigned>; milestone=%s (%d)',
                           issue.number, tracOwner, milestoneTitle, milestoneNumber)
@@ -808,7 +815,7 @@ def migrateTickets(hub, repo, defaultToken, ticketsCsvPath,
                     _hub = github.Github(token)
                     _repo = _hub.get_repo('{0}/{1}'.format(repo.owner.login, repo.name))
                     attachmentAuthorLogin = _loginFor(tracToGithubLoginMap, attachment['author'])
-                    if attachmentAuthorLogin and attachmentAuthorLogin != hub.get_user().login:
+                    if attachmentAuthorLogin and attachmentAuthorLogin != baseUser:
                         legacyInfo = u"_%s (%s) attached [%s](%s) on %s_\n"  \
                                      % (attachment['author'], attachmentAuthorLogin, attachment['filename'], attachment['fullpath'], attachment['date'].strftime(dateformat))
                         _log.info(u'  added attachment from %s', attachmentAuthorLogin)
@@ -834,7 +841,7 @@ def migrateTickets(hub, repo, defaultToken, ticketsCsvPath,
                     _hub = github.Github(token)
                     _repo = _hub.get_repo('{0}/{1}'.format(repo.owner.login, repo.name))
                     
-                    if commentAuthorLogin and commentAuthorLogin != hub.get_user().login:
+                    if commentAuthorLogin and commentAuthorLogin != baseUser:
                         commentBody = u"%s\n\n_Trac comment by %s (github user: %s) on %s_\n" % (comment['body'], comment['author'], commentAuthorLogin, comment['date'].strftime(dateformat))
                         
                         _log.info(u'  add comment by %s: %r', commentAuthorLogin, _shortened(commentBody))
@@ -862,7 +869,7 @@ def migrateTickets(hub, repo, defaultToken, ticketsCsvPath,
         else:
             _log.info(u'skip ticket #%d: %s', ticketId, title)
     if pretend:
-        _log.info(u'Finished pretend creating %d issues from %d tickets', createdCount, len(ticketToIssuesMap))
+        _log.info(u'Finished pretend creating %d issues from %d tickets', createdCount, len(ticketsToIssuesMap))
     else:
         _log.info(u'Finished really creating %d issues from %d tickets', createdCount, len(ticketsToIssuesMap))
 
@@ -973,8 +980,6 @@ def _loginFor(tracToGithubLoginMap, tracUser):
         result = tracToGithubLoginMap.get('*')
         if result is None:
             raise _ConfigError(_OPTION_USERS, u'Trac user "%s" must be mapped to a Github user' % (tracUser,))
-    if result == '*':
-        result = tracUser
     return result
 
 def _tokenFor(hub, tracToGithubUserMap, tracUser, validate=True):
@@ -985,8 +990,6 @@ def _tokenFor(hub, tracToGithubUserMap, tracUser, validate=True):
         result = tracToGithubUserMap.get('*')
         if result is None:
             raise _ConfigError(_OPTION_USERS, u'Trac user "%s" must be mapped to a Github user' % (tracUser,))
-    if result == '*':
-        result = tracUser
     if validate:
         _validateGithubUser(hub, tracUser, result)
     return result
