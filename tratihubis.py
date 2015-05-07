@@ -266,8 +266,6 @@ _FakeIssue = collections.namedtuple('_FakeIssue', ['number', 'title', 'body', 's
 
 csv.field_size_limit(sys.maxsize)
 
-skipExisting = False
-
 class _ConfigError(Exception):
     def __init__(self, option, message):
         assert option is not None
@@ -588,7 +586,7 @@ def _createTicketsToAttachmentsMap(attachmentsCsvPath, attachmentsPrefix):
 
     return result
 
-def createTicketsToIssuesMap(ticketsCsvPath, existingIssues, firstTicketIdToConvert, lastTicketIdToConvert):
+def createTicketsToIssuesMap(ticketsCsvPath, existingIssues, firstTicketIdToConvert, lastTicketIdToConvert, skipExisting):
     ticketsToIssuesMap = dict()
     fakeIssueId = 1 + len(existingIssues)
     # FIXME: This probably doesn't do the right thing if the issues to convert doesn't start with 1
@@ -614,7 +612,7 @@ def migrateTickets(hub, repo, defaultToken, ticketsCsvPath,
                    firstTicketIdToConvert=1, lastTicketIdToConvert=0,
                    labelMapping=None, userMapping="*:*",
                    attachmentsPrefix=None, pretend=True,
-                   trac_url=None, convert_text=False, ticketsToRender=False, addComponentLabels=False, userLoginMapping="*:*"):
+                   trac_url=None, convert_text=False, ticketsToRender=False, addComponentLabels=False, userLoginMapping="*:*", skipExisting=False):
     
     assert hub is not None
     assert repo is not None
@@ -628,7 +626,7 @@ def migrateTickets(hub, repo, defaultToken, ticketsCsvPath,
     tracToGithubUserMap = _createTracToGithubUserMap(hub, userMapping, defaultToken)
     tracToGithubLoginMap = _createTracToGithubLoginMap(hub, userLoginMapping, hub.get_user().login)
     labelTransformations = _LabelTransformations(repo, labelMapping)
-    ticketsToIssuesMap = createTicketsToIssuesMap(ticketsCsvPath, existingIssues, firstTicketIdToConvert, lastTicketIdToConvert)
+    ticketsToIssuesMap = createTicketsToIssuesMap(ticketsCsvPath, existingIssues, firstTicketIdToConvert, lastTicketIdToConvert, skipExisting)
 
     if convert_text:
         Translator_ = Translator
@@ -739,6 +737,7 @@ def migrateTickets(hub, repo, defaultToken, ticketsCsvPath,
                 githubAssigneeLogin = githubAssignee.login
             elif ghAssigneeLogin:
                 githubAssigneeLogin = ghAssigneeLogin
+            issue = None
             if not pretend:
                 if milestone is None:
                     if githubAssigneeLogin and githubAssigneeLogin != repo.owner.login:
@@ -778,7 +777,7 @@ def migrateTickets(hub, repo, defaultToken, ticketsCsvPath,
                 _hub = github.Github(defaultToken)
                 _repo = _hub.get_repo('{0}/{1}'.format(repo.owner.login, repo.name))
                 _issue = _repo.get_issue(issue.number)
-                _log.debug("Setting labels on issue %d: %s", issuer.number, labels)
+                _log.debug("Setting labels on issue %d: %s", issue.number, labels)
                 _issue.edit(labels=labels)
                 
             attachmentsToAdd = tracTicketToAttachmentsMap.get(ticketId)
@@ -1024,10 +1023,11 @@ def main(argv=None):
 
         if not options.really:
             _log.warning(u'no actions are performed unless command line option --really is specified')
+        else:
+            _log.warning(u'Really doing the ticket import!')
 
         if options.skipExisting:
             _log.warning(u'Tickets whose #s overlap with existing issues will not be copied over.')
-            skipExisting = options.skipExisting
 
         hub = github.Github(token)
         _log.info(u'log on to github as user "%s"', hub.get_user().login)
@@ -1040,7 +1040,8 @@ def main(argv=None):
                        labelMapping=labelMapping,
                        attachmentsPrefix=attachmentsPrefix, 
                       pretend=not options.really,
-                       trac_url=trac_url, convert_text=convert_text, ticketsToRender=ticketsToRender, addComponentLabels=addComponentLabels, userLoginMapping=userLoginMapping)
+                       trac_url=trac_url, convert_text=convert_text, ticketsToRender=ticketsToRender, addComponentLabels=addComponentLabels, userLoginMapping=userLoginMapping,
+                       skipExisting=options.skipExisting)
         
         exitCode = 0
     except (EnvironmentError, OSError, _ConfigError, _CsvDataError), error:
