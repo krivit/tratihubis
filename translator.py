@@ -38,7 +38,8 @@ class Translator(object):
             [r"\[([0-9]{1,4})\/(.+?)\]", r"[\1/\2]({trac_url}/changeset/\1/historical/\2)".format(trac_url=self.trac_url)],
             [r'\[changeset:"(\S*?)\/fipy"\]', r"\1"],          
             [r'\^([0-9]{1,5})\^', r"<sup>\1</sup>"],
-            [r'diff:@([0-9]{1,5}):([0-9]{1,5})', r'[diff:@\1:\2]({trac_url}/changeset?new=\2&old=\1)'.format(trac_url=self.trac_url)]
+            [r'diff:@([0-9]{1,5}):([0-9]{1,5})', r'[diff:@\1:\2]({trac_url}/changeset?new=\2&old=\1)'.format(trac_url=self.trac_url)],
+            [r"\[([^\[\]\s\n\r]+)\s+([^\]]+)]", r"[\2](\1)"]
             ]
 
         regex = r"ticket:([0-9]{1,3})"
