@@ -639,6 +639,7 @@ def migrateTickets(hub, repo, defaultToken, ticketsCsvPath,
     fakeIssueId = 1 + len(existingIssues)
     for ticketMap in _tracTicketMaps(ticketsCsvPath):
         _log.debug("Rate limit status: %s resets at %s", hub.rate_limiting, datetime.datetime.fromtimestamp(hub.rate_limiting_resettime))
+        # FIXME: Parse hub.rate_limiting "(4990,5000)". If 1st # < somethign small, say 10, then at least warn, and maybe cleep until the reset time.
         ticketId = ticketMap['id']
         _log.debug("Looking at ticket %s", ticketId)
         title = ticketMap['summary']
@@ -677,7 +678,10 @@ def migrateTickets(hub, repo, defaultToken, ticketsCsvPath,
             _log.info(u'convert ticket #%d: %s', ticketId, _shortened(title))
 
             title = translator.translate(title)
+            #origbody = body
             body = translator.translate(body, ticketId=ticketId)
+            #if body != origbody:
+            #    _log.debug("Translated body from '%s' to '%s'", origbody, body)
 
             dateformat = "%m-%d-%Y at %H:%M"
             ticketString = '#{0}'.format(ticketId)
@@ -688,7 +692,14 @@ def migrateTickets(hub, repo, defaultToken, ticketsCsvPath,
                          % (ticketString, ticketMap['reporter'], ticketMap['createdtime'].strftime(dateformat),
                          ticketMap['modifiedtime'].strftime(dateformat))
             if ticketMap['cc'] and str(ticketMap['cc']).strip() != "":
-                legacyInfo += u"   CCing: %s" % ticketMap['cc']
+                # strip out email domains (privacy)
+                import re
+                ccList = ticketMap['cc']
+                sub = re.compile(r"([^\@\s\,]+)(@[^\,\s]+)?", re.DOTALL)
+                ccListNew = sub.sub(r"\1@...", ccList)
+                if ccListNew != ccList:
+                    _log.debug("Edited ccList from '%s' to '%s'", ccList, ccListNew)
+                legacyInfo += u"   CCing: %s" % ccListNew
 
             body += legacyInfo
 
