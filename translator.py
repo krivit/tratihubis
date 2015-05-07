@@ -42,6 +42,7 @@ class Translator(object):
             [r"\[([^\[\]\s\n\r]+)\s+([^\]]+)]", r"[\2](\1)"]
             ]
 
+        # AH: Last one converts wiki links [URL text] to markdown links [text](URL)
         regex = r"ticket:([0-9]{1,3})"
         sub = lambda m: r"issue #{0}".format(self.ticketsToIssuesMap[int(m.group(1))])
         subs.append([regex, sub])
