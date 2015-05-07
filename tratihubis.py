@@ -638,7 +638,21 @@ def migrateTickets(hub, repo, defaultToken, ticketsCsvPath,
 
     fakeIssueId = 1 + len(existingIssues)
     for ticketMap in _tracTicketMaps(ticketsCsvPath):
-        _log.debug("Rate limit status: %s resets at %s", hub.rate_limiting, datetime.datetime.fromtimestamp(hub.rate_limiting_resettime))
+        _log.debug("Rate limit status: %r resets at %r", hub.rate_limiting, datetime.datetime.fromtimestamp(hub.rate_limiting_resettime))
+        # rate limit is 5000 per hour, after which you get an error: "403 Forbidden" with message "API rate limit exceeded...."
+        if hub.rate_limiting[0] < 10:
+            # This solution to the rate limit is fairly crude: when we're about to hit the limit, sleep until the reset time.
+            # That could be nearly an hour (maybe). An alternative would be to (a) try to catch the error when you hit the limit and sleep then, and/or (b)
+            # sleep 10 minutes and retry when we need to, or (c) sleep periodically if we are burning up our API calls quickly
+            _log.warning("Rate limit nearly exceeded. Sleeping until reset time of %s", datetime.datetime.fromtimestamp(hub.rate_limiting_resettime))
+            # FIXME: TZ handling
+            now = datetime.datetime.now()
+            sleeptime = datetime.datetime.fromtimestamp(hub.rate_limiting_resettime) - now
+            _log.info("Will sleep for %d seconds. See you at %s! Zzz.....", int(sleeptime.total_seconds()), datetime.datetime.fromtimestamp(hub.rate_limiting_resettime))
+            import time
+            time.sleep(int(sleeptime.total_seconds()) + 1)
+            _log.info(" ... And, we're back!")
+
         # FIXME: Parse hub.rate_limiting "(4990,5000)". If 1st # < somethign small, say 10, then at least warn, and maybe cleep until the reset time.
         ticketId = ticketMap['id']
         _log.debug("Looking at ticket %s", ticketId)
