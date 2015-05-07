@@ -266,8 +266,7 @@ _FakeIssue = collections.namedtuple('_FakeIssue', ['number', 'title', 'body', 's
 
 csv.field_size_limit(sys.maxsize)
 
-
-
+skipExisting = False
 
 class _ConfigError(Exception):
     def __init__(self, option, message):
@@ -592,6 +591,15 @@ def _createTicketsToAttachmentsMap(attachmentsCsvPath, attachmentsPrefix):
 def createTicketsToIssuesMap(ticketsCsvPath, existingIssues, firstTicketIdToConvert, lastTicketIdToConvert):
     ticketsToIssuesMap = dict()
     fakeIssueId = 1 + len(existingIssues)
+    # FIXME: This probably doesn't do the right thing if the issues to convert doesn't start with 1
+    if skipExisting:
+        _log.debug("Skipping existing tickets. The tickets to issues map will pretend there are no existing issues.")
+        fakeIssueId = 1
+    else:
+        if len(existingIssues) > 0:
+            _log.debug("Due to existing %d issues, 1st ticket %d will become issue %d", len(existingIssues), firstTicketIdToConvert, fakeIssueId)
+        else:
+            _log.debug("No existing issues. 1st ticket %d will be issue %d", firstTicketIdToConvert, fakeIssueId)
     for ticketMap in _tracTicketMaps(ticketsCsvPath):
         ticketId = ticketMap['id']
         if (ticketId >= firstTicketIdToConvert) \
@@ -655,6 +663,11 @@ def migrateTickets(hub, repo, defaultToken, ticketsCsvPath,
 
         # FIXME: Parse hub.rate_limiting "(4990,5000)". If 1st # < somethign small, say 10, then at least warn, and maybe cleep until the reset time.
         ticketId = ticketMap['id']
+        # FIXME: This probably doesn't do the right thing if the issues to convert doesn't start with 1
+        if skipExisting and ticketId in existingIssues.keys():
+            iss = existingIssues.get(ticketId)
+            _log.debug("Skipping Trac ticket %s because it's ID overlaps and existing issue %s:%s", ticketId, iss.number, iss.title)
+            continue
         _log.debug("Looking at ticket %s", ticketId)
         title = ticketMap['summary']
         renderTicket = True
@@ -672,6 +685,7 @@ def migrateTickets(hub, repo, defaultToken, ticketsCsvPath,
             _hubOwner = github.Github(tokenOwner)
             _log.debug("Repo will be %s", '{0}/{1}'.format(repo.owner.login, repo.name))
             _repo = _hub.get_repo('{0}/{1}'.format(repo.owner.login, repo.name))
+            #_repo = _getRepo(hub, '{0}/{1}'.format(repo.owner.login, repo.name))
             githubAssignee = _hubOwner.get_user()
             ghAssigneeLogin = _loginFor(tracToGithubLoginMap, tracOwner)
             milestoneTitle = ticketMap['milestone'].strip()
@@ -842,6 +856,8 @@ def _parsedOptions(arguments):
                       help="really perform the conversion")
     parser.add_option("-v", "--verbose", action="store_true", dest="verbose",
                       help="log all actions performed in console")
+    parser.add_option("-s", "--skipExisting", action="store_true", default=False, dest="skipExisting",
+                      help="Skip tickets whose # overlaps an existing GitHub Issue (default %default)")
     (options, others) = parser.parse_args(arguments)
     if len(others) == 0:
         parser.error(u"CONFIGFILE must be specified")
@@ -956,6 +972,19 @@ def _userFor(token):
     _hub = github.Github(token)
     return _hub.get_user()
 
+def _getRepo(hub, repoName):
+    # For initially getting the repo, split the repoName on / into org and repo
+    if '/' in repoName:
+        (org, repoName) = repoName.split('/')
+        _log.info("Repo %s belongs to org %s", repoName, org)
+        org = hub.get_organization(org)
+        _log.debug("Org ID: %d, login: %s, name: %s, url: %s", org.id, org.login, org.name, org.url)
+        repo = org.get_repo(repoName)
+        _log.debug("Repo full_name %s, id: %d, name: %s, organization name: %s, owner %s, url: %s", repo.full_name, repo.id, repo.name, repo.organization.name, repo.owner.login, repo.url)
+        _log.debug("So later get_repo will get %s/%s", repo.owner.login, repo.name)
+        return repo
+    return hub.get_user().get_repo(repoName)
+
 def main(argv=None):
     if argv is None:
         argv = sys.argv
@@ -996,9 +1025,13 @@ def main(argv=None):
         if not options.really:
             _log.warning(u'no actions are performed unless command line option --really is specified')
 
+        if options.skipExisting:
+            _log.warning(u'Tickets whose #s overlap with existing issues will not be copied over.')
+            skipExisting = options.skipExisting
+
         hub = github.Github(token)
         _log.info(u'log on to github as user "%s"', hub.get_user().login)
-        repo = hub.get_user().get_repo(repoName)
+        repo = _getRepo(hub, repoName)
         _log.info(u'connect to github repo "%s"', repoName)
 
         migrateTickets(hub, repo, token, ticketsCsvPath,
