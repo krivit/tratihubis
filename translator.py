@@ -27,7 +27,7 @@ class Translator(object):
             [r"!(\w)", r"\1"],
             [r"(^|\n)[ ]{6,}", r"\1"],
             [r"\[([^\s\n\,\]\.\(\)]{6,}?)\s{1,}([^\n]+?)\]", r"[\2](\1)"],
-            [r"(\s+|\()(changeset:|commit:)?([0-9a-f]{6,})[^0-9a-f\-]", r"\1[\3]({repo_url}/commit/\3)".format(repo_url=self.repo_url)],
+            [r"(\s+|\()(changeset:|commit:)?([0-9a-f]{6,})([^0-9a-f\-])", r"\1[\3]({repo_url}/commit/\3)\4".format(repo_url=self.repo_url)],
             [r"source:branches/([\w\-]*)", r"[\1](../tree/\1)"],
             [r"source:fipy/([\w/\.]*)@([0-9a-f]{5,40})", r"[\1@\2](../tree/\2/\1)"],
             [r"source:([\w/\.]*)", r"[\1](../tree/master/\1)"],
