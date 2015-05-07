@@ -643,6 +643,7 @@ def migrateTickets(hub, repo, defaultToken, ticketsCsvPath,
                 labels.append(label.name)
 
     fakeIssueId = 1 + len(existingIssues)
+    createdCount = 0
     for ticketMap in _tracTicketMaps(ticketsCsvPath):
         _log.debug("Rate limit status: %r resets at %r", hub.rate_limiting, datetime.datetime.fromtimestamp(hub.rate_limiting_resettime))
         # rate limit is 5000 per hour, after which you get an error: "403 Forbidden" with message "API rate limit exceeded...."
@@ -664,7 +665,7 @@ def migrateTickets(hub, repo, defaultToken, ticketsCsvPath,
         # FIXME: This probably doesn't do the right thing if the issues to convert doesn't start with 1
         if skipExisting and ticketId in existingIssues.keys():
             iss = existingIssues.get(ticketId)
-            _log.debug("Skipping Trac ticket %s because it's ID overlaps and existing issue %s:%s", ticketId, iss.number, iss.title)
+            _log.debug("Skipping Trac ticket %s because its ID overlaps an existing issue %s:%s", ticketId, iss.number, iss.title)
             continue
         _log.debug("Looking at ticket %s", ticketId)
         title = ticketMap['summary']
@@ -686,6 +687,7 @@ def migrateTickets(hub, repo, defaultToken, ticketsCsvPath,
             #_repo = _getRepo(hub, '{0}/{1}'.format(repo.owner.login, repo.name))
             githubAssignee = _hubOwner.get_user()
             ghAssigneeLogin = _loginFor(tracToGithubLoginMap, tracOwner)
+            _log.debug("For ticket %d got tracOwner %s, token %s, hub user's login: %s, ghAssigneeLogin from lookup on tracOwner: %s", ticketId, tracOwner, tokenOwner, githubAssignee.login, ghAssigneeLogin)
             milestoneTitle = ticketMap['milestone'].strip()
             if len(milestoneTitle) != 0:
                 if milestoneTitle not in existingMilestones:
@@ -732,33 +734,51 @@ def migrateTickets(hub, repo, defaultToken, ticketsCsvPath,
             if ticketsToRender:
                 _log.info(u'body of ticket:\n%s', body)
             
-            githubAssigneeeLogin = None
-            if githubAssignee:
-                githubAssigneeLogin = githubAssignee.login
-            elif ghAssigneeLogin:
+            githubAssigneeLogin = None
+            if ghAssigneeLogin:
                 githubAssigneeLogin = ghAssigneeLogin
+            elif githubAssignee:
+                githubAssigneeLogin = githubAssignee.login
+            _log.debug("Found ghAssignee login: %s", githubAssigneeLogin)
+
+            # Argh and FIXME
+            # After carefully setting things up to use just a login name for assigning tickets, that seems to fail
+            # for a login that I think should have worked, I got:
+#GithubException: 422 {u'documentation_url': u'https://developer.github.com/v3/issues/#create-an-issue', u'message': u'Validation Failed', u'errors': [{u'field': u'assignee', u'code': u'invalid', u'resource': u'Issue', u'value': u'tcmitchell'}]}
+            # So for now, assign things to me or leave them unassigned.
+
+            # Hmm. Nope, the assignee should be a login. That much is true. However, the _repo instance needs to have been created
+            # with a token that matches the login.
+
+            if githubAssignee and (tracOwner == 'ahelsing' or githubAssignee.login != 'ahelsing') and ghAssigneeLogin == githubAssignee.login:
+                _log.debug("Will use the token of the owner with login %s", githubAssignee.login)
+            else:
+                _log.debug("Either had no ghAssignee or it is assigned to me by default, so leave it unassigned")
             issue = None
             if not pretend:
                 if milestone is None:
-                    if githubAssigneeLogin and githubAssigneeLogin != repo.owner.login:
-                        issue = _repo.create_issue(title, body, assignee=githubAssigneeLogin)
+                    if githubAssignee and (tracOwner == 'ahelsing' or githubAssignee.login != 'ahelsing') and ghAssigneeLogin == githubAssignee.login:
+                        issue = _repo.create_issue(title, body, assignee=ghAssigneeLogin)
                     else:
-                        issue = _repo.create_issue(title, body)#, githubAssignee)
+                        issue = _repo.create_issue(title, body)
                 else:
-                    if githubAssigneeLogin and githubAssigneeLogin != repo.owner.login:
-                        issue = _repo.create_issue(title, body, assignee=githubAssigneeLogin, milestone=milestone)
+                    if githubAssignee and (tracOwner == 'ahelsing' or githubAssignee.login != 'ahelsing') and ghAssigneeLogin == githubAssignee.login:
+#                    if githubAssigneeLogin:
+                        issue = _repo.create_issue(title, body, assignee=ghAssigneeLogin, milestone=milestone)
                     else:
                         issue = _repo.create_issue(title, body, milestone=milestone)
             else:
                 issue = _FakeIssue(fakeIssueId, title, body, 'open')
                 fakeIssueId += 1
+            createdCount += 1
                 
-            if githubAssigneeLogin and githubAssigneeLogin != repo.owner.login:
+#            if githubAssigneeLogin:
+            if githubAssignee and (tracOwner == 'ahelsing' or githubAssignee.login != 'ahelsing') and ghAssigneeLogin == githubAssignee.login:
                 _log.info(u'  issue #%s: owner=%s-->%s; milestone=%s (%d)',
-                          issue.number, tracOwner, githubAssigneeLogin, milestoneTitle, milestoneNumber)
+                          issue.number, tracOwner, githubAssignee.login, milestoneTitle, milestoneNumber)
             else:
-                _log.info(u'  issue #%s: owner=%s-->%s; milestone=%s (%d)',
-                          issue.number, tracOwner, githubAssignee.name, milestoneTitle, milestoneNumber)
+                _log.info(u'  issue #%s: owner=%s--><unassigned>; milestone=%s (%d)',
+                          issue.number, tracOwner, milestoneTitle, milestoneNumber)
 
             labels = []
             possiblyAddLabel(labels, 'type', ticketMap['type'])
@@ -841,6 +861,10 @@ def migrateTickets(hub, repo, defaultToken, ticketsCsvPath,
                     issue.edit(state='closed')
         else:
             _log.info(u'skip ticket #%d: %s', ticketId, title)
+    if pretend:
+        _log.info(u'Finished pretend creating %d issues from %d tickets', createdCount, len(ticketToIssuesMap))
+    else:
+        _log.info(u'Finished really creating %d issues from %d tickets', createdCount, len(ticketsToIssuesMap))
 
 def _parsedOptions(arguments):
     assert arguments is not None
