@@ -13,19 +13,19 @@ To install tratihubis, use ``pip`` or ``easy_install``::
   $ pip install tratihubis
 
 If necessary, this also installs the `PyGithub <http://pypi.python.org/pypi/PyGithub/>`_ package.
-
+ * If it does not, do `sudo pip install PyGithub`
 
 Usage
 =====
 
-Information about Trac tickets to convert has to be provided in a CSV file. To obtain this CSV file, create a
-new Trac queries using the SQL statement stored in
-`query_tickets.sql <https://github.com/roskakori/tratihubis/blob/master/query_tickets.sql>`_  and
+Information about Trac tickets to convert has to be provided in several CSV files. To obtain these CSV files, create
+new Trac queries using the SQL statements stored in
+`query_tickets.sql <https://github.com/roskakori/tratihubis/blob/master/query_tickets.sql>`_ (or better, the current version from this repo) and
 `query_comments.sql <https://github.com/roskakori/tratihubis/blob/master/query_comments.sql>`_.   Then
 execute the queries and save the results by clicking "Download in other formats: Comma-delimited Text" and
-choosing for example ``/Users/me/mytool/tickets.csv`` and ``/Users/me/mytool/comments.csv`` as output files.
+choosing for example ``/Users/me/mytool/tickets.csv`` and ``/Users/me/mytool/comments.csv`` as output files. Do the same for `query_attachments.sql`.
 
-Next create a config file to describe how to login to Github and what to convert. For example, you could
+Next create a config file to describe how to login to Github and what to convert. For an example, see `sample-ticket-export.cfg`. For example, you could
 store the following in ``~/mytool/tratihubis.cfg``::
 
   [tratihubis]
@@ -47,13 +47,14 @@ To actually create the Github issues, you need to enable to command line option 
 
 Be aware that Github issues and milestones cannot be deleted in case you mess up. Your only remedy is to
 remove the whole repository and start anew. So make sure that tratihubis does what you want before you
-enable ``--really``.
+enable ``--really``. A good practice would be to do a practice import into a junk repository, check that you like the results, then delete that
+repository and redo it using your real repository.
 
 Mapping users
 -------------
 
 By default all tickets and comments are created by the user specified with the option `token`. For
-private Trac project with a single user this already gives the desired result in the Github project.
+a private Trac project with a single user this already gives the desired result in the Github project.
 
 In case there are multiple Trac users, you can map them to different Github tokens using the option
 `users`. For example::
@@ -69,6 +70,9 @@ The default value is::
   users = *:*
 
 This maps every Trac user to the default token.
+
+You may also use the config `userLogins` to map trac login names to github login names. This is used to capture more information in
+the new comments. Be sure to use the correct GitHub login in order for tickets to be properly assigned.
 
 Mapping labels
 --------------
@@ -95,7 +99,7 @@ Furthermore closed Trac tickets have a ``resolution`` which, among others, can b
 * invalid
 * wontfix
 
-The ``labels`` config option allows to map Trac fields to Github labels. For example::
+The ``labels`` config option allows you to map Trac fields to Github labels. For example::
 
   labels = type=defect: bug, type=enhancement: enhancement, resolution=wontfix: wontfix
 
@@ -107,12 +111,20 @@ between quotes::
 
   labels = type="software defect": bug
 
+This script will also support labels of type `priority` and `keyword` matching the corresponding Trac field.
+
+``IMPORTANT``: You must pre-create all the above labels in Github for the import to complete.
+
+Note that components will also map to labels if you supply the config option `addComponentLabels=true`. In this case, the script will create the needed label if not present.
 
 Attachments
 -----------
 
-You can find some notes on this in `issue #19 <https://github.com/roskakori/tratihubis/issues/19>`: Add
-documentation for ``attachmentsprefix``.
+You can find some notes on this in `issue #19 <https://github.com/roskakori/tratihubis/issues/19>`.
+
+In short, Github doesn't directly support attachments. Instead, this script can create a comment that includes a link to a document elsewhere.
+For example, you can create a Gist for the attachment, or create a repository. Run `query_attachments.sql` to get the paths / descriptions of attachments.
+Then set `attachmentsPrefix` in the config. The script will create a comment referencing the URL <prefix>/<issue#>/<attachmentName>.
 
 Converting Trac Wiki Markup to Github Markdown
 ----------------------------------------------
@@ -138,17 +150,15 @@ Limitations
 ===========
 
 The author of Github issues and comments always is the user specified in the config, even if a different
-user opened the original Trac ticket or wrote the original Trac comment.
+user opened the original Trac ticket or wrote the original Trac comment - except where the config file supplies a `user` and `userLogin` for 
+this other user.
 
-Github issues and comments have the current time as time stamp instead if time from Trac.
-
-Github issue descriptions contains the raw Trac Wiki markup, there is no translation to Github markdown.
+Github issues and comments have the current time as time stamp instead of the time from Trac.
 
 The due date of Trac milestones is not migrated to Github milestones, so when the conversion is done, you
-have to set it manually.
+have to set it manually. Similarly, closed milestones will not be closed.
 
-Trac Milestone without any tickets are not converted to Github milestone.
-
+Trac milestones without any tickets are not converted to Github milestone.
 
 Support
 =======
@@ -168,6 +178,19 @@ Copyright (c) 2012-2013, Thomas Aglassinger. All rights reserved. Distributed un
 
 Changes
 =======
+
+2015-05
+
+(Contributed by Aaron Helsinger)
+
+ * Fixes to translation of wiki markup
+ * Revised SQL to match my environment (Trac 0.11 backed by PostgreSQL)
+  * And export CC list, keywords, priority
+ * Add support for labels from keywords, priorities
+ * Add option `--skipExisting` to skip tickets whose # conflicts with a pre-existing issue / pull request.
+ * Watch the Github rate limit and sleep until the reset time if needed.
+ * Include the CC list (minus email domain) in comments
+ * Work on including the proper Github user login and having the proper Github user be the reporter / assignee.
 
 Version 1.0, 2014-06-14
 
