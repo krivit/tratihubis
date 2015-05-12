@@ -29,4 +29,21 @@ Edits for GENI-NSF use:
  - Include Trac CC list in ticket comment (stripping email domain from
    the CC list).
  - Change print statements to log messages.
- 
+
+-----
+Usage:
+1) Export Tickets from Trac
+For each `.sql` file included, create a new Trac report
+View Tickets -> Available Queries -> Create New Report
+Paste in the SQL from one of the files. Run the report, and at the
+bottom click the link to save it as CSV.
+
+2) Write a tratihubis config file
+See sample-ticket-export.cfg
+
+3) Practice ticket imports
+Run your ticket import into a new / practice repository. Check that it
+works and the new github issues look good. Then delete that repository.
+
+4) Import tickets
+Run command something like: python ./tratihubis.py ../my-ticket-export.cfg --skipExisting --really
