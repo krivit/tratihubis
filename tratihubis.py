@@ -1062,13 +1062,32 @@ def main(argv=None):
                                            required=False,
                                            defaultValue=False,
                                            boolean=False)
+        ticketToStartAt = _getConfigOption(config,
+                                           'ticketToStartAt',
+                                           required=False,
+                                           defaultValue=1,
+                                           boolean=False)
         addComponentLabels = _getConfigOption(config, 'addComponentLabels',
                                               required=False,
                                               defaultValue=False,
                                               boolean=True)
 
+        if ticketToStartAt:
+            ticketToStartAt = long(ticketToStartAt)
+            if ticketToStartAt < 1:
+                ticketToStartAt = 1
+            if ticketToStartAt > 1:
+                _log.info("Starting import with ticket# %d", ticketToStartAt)
+        else:
+            ticketToStartAt = 1
         if ticketsToRender:
             ticketsToRender = [long(x) for x in ticketsToRender.split(',')]
+            if ticketToStartAt and ticketToStartAt > 1:
+                tkt2 = []
+                for tkt in ticketsToRender:
+                    if tkt >= ticketToStartAt:
+                        tkt2.append(tkt)
+                ticketsToRender = tkt2
             _log.info("Only rendering tickets %s", ticketsToRender)
 
         if not options.really:
@@ -1085,7 +1104,7 @@ def main(argv=None):
         _log.info(u'connect to github repo "%s"', repoName)
 
         migrateTickets(hub, repo, token, ticketsCsvPath,
-                       commentsCsvPath, attachmentsCsvPath,
+                       commentsCsvPath, attachmentsCsvPath, firstTicketIdToConvert=ticketToStartAt,
                        userMapping=userMapping,
                        labelMapping=labelMapping,
                        attachmentsPrefix=attachmentsPrefix, 
