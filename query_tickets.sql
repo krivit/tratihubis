@@ -1,21 +1,2 @@
--- All Trac tickets to convert.
-copy 
-(select
-    id,
-    type,
-    owner,
-    reporter,
-    milestone,
-    status,
-    resolution,
-    summary,
-    description,
-    time / 1000000 as PosixTime,
-    changetime / 1000000 as ModifiedTime,
-    component
-from
-    ticket
-order
-    by id)
-to '/tmp/tickets.csv'
-with CSV
+-- All Trac tickets to convert from a Trac 0.11 / PostgreSQL DB
+select    id,    type,    owner,    reporter,    milestone,    status,    resolution,    summary,    description,    to_timestamp(time),    to_timestamp(changetime),    component, priority, keywords, cc from    ticket order    by id
