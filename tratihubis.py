@@ -707,7 +707,7 @@ def migrateTickets(hub, repo, defaultToken, ticketsCsvPath,
         # FIXME: Parse hub.rate_limiting "(4990,5000)". If 1st # < somethign small, say 10, then at least warn, and maybe cleep until the reset time.
         ticketId = ticketMap['id']
         # FIXME: This probably doesn't do the right thing if the issues to convert doesn't start with 1
-        if skipExisting and ticketId in existingIssues.keys():
+        if skipExisting and ticketId in existingIssues:
             iss = existingIssues.get(ticketId)
             _log.debug("Skipping Trac ticket %s because its ID overlaps an existing issue %s:%s", ticketId, iss.number, iss.title)
             continue
@@ -1047,8 +1047,7 @@ def _tokenFor(hub, tracToGithubUserMap, tracUser, validate=True):
     return result
 
 def _getHub(token):
-    _log.debug("doUpdate: %s", _doUpdate())
-    if token in _tokenToHubMap.keys():
+    if token in _tokenToHubMap:
         hub = _tokenToHubMap[token]
         return hub
     _log.debug("Getting hub object from token")
@@ -1063,15 +1062,15 @@ def _userFor(token):
 
 _orgsByHub = {} # key is hub object, value is hash by orgname of org objects
 _reposByOrg = {} # key is org object, value is hash by reponame of repo objects
-_reposByHub = {} # key is hub object, value is hash by reponame of repo objects
+#_reposByHub = {} # key is hub object, value is hash by reponame of repo objects
 
 def _getRepo(hub, repoName):
     # For initially getting the repo, split the repoName on / into org and repo
     if '/' in repoName:
         (orgname, repoName) = repoName.split('/')
         _log.info("Repo %s belongs to org %s", repoName, orgname)
-        if hub in _orgsByHub.keys():
-            if orgname in _orgsByHub[hub].keys():
+        if hub in _orgsByHub:
+            if orgname in _orgsByHub[hub]:
                 org = _orgsByHub[hub][orgname]
                 if _doUpdate():
                     _log.debug("Doing org.update for %s", orgname)
@@ -1088,11 +1087,11 @@ def _getRepo(hub, repoName):
             _orgsByHub[hub][orgname] = org
 
         _log.debug("Org ID: %d, login: %s, name: %s, url: %s", org.id, org.login, org.name, org.url)
-        if org in _reposByOrg.keys():
+        if org in _reposByOrg:
             reposForOrg = _reposByOrg[org]
         else:
             reposForOrg = {}
-        if repoName in reposForOrg.keys():
+        if repoName in reposForOrg:
             repo = reposForOrg[repoName]
             if _doUpdate():
                 _log.debug("Doing repo.update for repo %s under org %s", repoName, orgname)
@@ -1111,12 +1110,12 @@ def _getRepo(hub, repoName):
 
 _reposNoUserByHub = {} # key is hub, value is array by repo name of repo objects
 def _getRepoNoUser(hub, repoName):
-    if hub not in _reposNoUserByHub.keys():
+    if hub not in _reposNoUserByHub:
         _reposByName = {}
     else:
         _reposByName = _reposNoUserByHub[hub]
 
-    if repoName not in _reposByName.keys():
+    if repoName not in _reposByName:
         # For some reason we fall in here relatively often. I suspect it is because
         # The hub instances are for different ticket reporters
         _log.debug("Looking up repo %s", repoName)
@@ -1136,7 +1135,7 @@ def _getRepoNoUser(hub, repoName):
 
 _hubToUser = {} # key is hub object, value is user object
 def _getUserFromHub(hub):
-    if hub in _hubToUser.keys():
+    if hub in _hubToUser:
         user = _hubToUser[hub]
         # Doing user.update takes 5-11 seconds, and we do this often
         if _doUpdate():
@@ -1152,23 +1151,23 @@ def _getUserFromHub(hub):
 
 _repoToIssue = {} # key is repo object, value is array by issue # of issue objects
 def _getIssueFromRepo(repo, issueNumber):
-    if repo in _repoToIssue.keys():
-        issuesForRepo = repoToIssue[repo]
+    if repo in _repoToIssue:
+        issuesForRepo = _repoToIssue[repo]
     else:
         issuesForRepo = {}
-    if issueNumber in issuesForRepo.keys():
+    if issueNumber in issuesForRepo:
         issue = issuesForRepo[issueNumber]
         # Update calls are 5seconds each. Since we're creating the object, it shouldn't have changed on us
         if _doUpdate():
             _log.debug("Updating issue %d", issueNumber)
             if issue.update():
                 issuesForRepo[issueNumber] = issue
-                repoToIssue[repo] = issuesForRepo
+                _repoToIssue[repo] = issuesForRepo
         return issue
     _log.debug("looking up issue %d", issueNumber)
     issue = repo.get_issue(issueNumber)
     issuesForRepo[issueNumber] = issue
-    repoToIssue[repo] = issuesForRepo
+    _repoToIssue[repo] = issuesForRepo
     return issue
 
 def main(argv=None):
