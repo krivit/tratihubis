@@ -291,6 +291,7 @@ _tokenToHubMap = {}
 _FakeMilestone = collections.namedtuple('_FakeMilestone', ['number', 'title'])
 _FakeIssue = collections.namedtuple('_FakeIssue', ['number', 'title', 'body', 'state'])
 
+# For storing if we should call update() on github objects
 _doUpdateVar = {}
 
 def _setUpdate(doit=False):
