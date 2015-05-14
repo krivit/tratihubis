@@ -727,7 +727,7 @@ def migrateTickets(hub, repo, defaultToken, ticketsCsvPath,
             tokenOwner = _tokenFor(hub, tracToGithubUserMap, tracOwner)
             _hubOwner = _getHub(tokenOwner)
             _log.debug("Repo will be %s", '{0}/{1}'.format(repo.owner.login, repo.name))
-            _repo = _getRepoNoUser(hub, '{0}/{1}'.format(repo.owner.login, repo.name))
+            _repo = _getRepoNoUser(_hub, '{0}/{1}'.format(repo.owner.login, repo.name))
             #_repo = _hub.get_repo('{0}/{1}'.format(repo.owner.login, repo.name))
             #_repo = _getRepo(hub, '{0}/{1}'.format(repo.owner.login, repo.name))
             githubAssignee = _getUserFromHub(_hubOwner)
@@ -844,14 +844,21 @@ def migrateTickets(hub, repo, defaultToken, ticketsCsvPath,
             if not pretend:
                 for l in labels:
                     _addNewLabel(l, repo)
+
             if len(labels) > 0:
-                _hub = _getHub(defaultToken)
-                _repo = _getRepoNoUser(_hub, '{0}/{1}'.format(repo.owner.login, repo.name))
-                #_repo = _hub.get_repo('{0}/{1}'.format(repo.owner.login, repo.name))
-                _issue = _getIssueFromRepo(_repo,issue.number)
-                #_issue = _repo.get_issue(issue.number)
+                # FIXME: Why is this whole block not: issue.edit(labels=labels)?
+                # That is, why get a new hub, repo, and issue instance?
+                # Done this way, the default person applies all labels.
+                # Done my suggested way, the issue reporter applies all labels, which seems better.
                 _log.debug("Setting labels on issue %d: %s", issue.number, labels)
-                _issue.edit(labels=labels)
+                issue.edit(labels=labels)
+#                _hub = _getHub(defaultToken)
+#                _repo = _getRepoNoUser(_hub, '{0}/{1}'.format(repo.owner.login, repo.name))
+#                #_repo = _hub.get_repo('{0}/{1}'.format(repo.owner.login, repo.name))
+#                _issue = _getIssueFromRepo(_repo,issue.number)
+#                #_issue = _repo.get_issue(issue.number)
+#                _log.debug("Setting labels on issue %d: %s", issue.number, labels)
+#                _issue.edit(labels=labels)
                 
             attachmentsToAdd = tracTicketToAttachmentsMap.get(ticketId)
             if attachmentsToAdd is not None:
@@ -903,7 +910,7 @@ def migrateTickets(hub, repo, defaultToken, ticketsCsvPath,
 
                     if ticketsToRender:
                         _log.info(u'commentBody:\n%s',commentBody)
-                    
+
                     if not pretend:
                         # Here we use the token from the users map
                         # so the real github user creates teh comment if possible
@@ -915,6 +922,8 @@ def migrateTickets(hub, repo, defaultToken, ticketsCsvPath,
             if ticketMap['status'] == 'closed':
                 _log.info(u'  close issue')
                 if not pretend:
+                    # FIXME: perhaps it would be better if the issue instance were the last
+                    # one used to add a comment if any, as that person probably closed the ticket? That's not reliable though.
                     issue.edit(state='closed')
         else:
             _log.info(u'skip ticket #%d: %s', ticketId, title)
@@ -1157,13 +1166,16 @@ def _getIssueFromRepo(repo, issueNumber):
         issuesForRepo = {}
     if issueNumber in issuesForRepo:
         issue = issuesForRepo[issueNumber]
-        # Update calls are 5seconds each. Since we're creating the object, it shouldn't have changed on us
+        # Update calls are 5 seconds each. Since we're creating the object, it shouldn't have changed on us
         if _doUpdate():
             _log.debug("Updating issue %d", issueNumber)
             if issue.update():
                 issuesForRepo[issueNumber] = issue
                 _repoToIssue[repo] = issuesForRepo
         return issue
+
+    # Unfortunately we fall through here often, because each
+    # commenter on a ticket has their own instance here.
     _log.debug("looking up issue %d", issueNumber)
     issue = repo.get_issue(issueNumber)
     issuesForRepo[issueNumber] = issue
