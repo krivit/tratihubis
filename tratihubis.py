@@ -276,7 +276,7 @@ import dateutil.parser
 
 from translator import Translator, NullTranslator
 
-logging.basicConfig(format='%(asctime)s %(levelname)-8s: %(message)s',datefmt='%H:%M:%S')
+logging.basicConfig(level=logging.INFO, format='%(asctime)s %(levelname)-8s: %(message)s',datefmt='%H:%M:%S')
 _log = logging.getLogger('tratihubis')
 
 __version__ = "1.0"
@@ -291,7 +291,16 @@ _tokenToHubMap = {}
 _FakeMilestone = collections.namedtuple('_FakeMilestone', ['number', 'title'])
 _FakeIssue = collections.namedtuple('_FakeIssue', ['number', 'title', 'body', 'state'])
 
-_doUpdate = False
+_doUpdateVar = {}
+
+def _setUpdate(doit=False):
+    if doit:
+        _doUpdateVar['val'] = True
+    else:
+        _doUpdateVar['val'] = False
+
+def _doUpdate():
+    return _doUpdateVar['val']
 
 csv.field_size_limit(sys.maxsize)
 
@@ -1037,6 +1046,7 @@ def _tokenFor(hub, tracToGithubUserMap, tracUser, validate=True):
     return result
 
 def _getHub(token):
+    _log.debug("doUpdate: %s", _doUpdate())
     if token in _tokenToHubMap.keys():
         hub = _tokenToHubMap[token]
         return hub
@@ -1062,7 +1072,7 @@ def _getRepo(hub, repoName):
         if hub in _orgsByHub.keys():
             if orgname in _orgsByHub[hub].keys():
                 org = _orgsByHub[hub][orgname]
-                if _doUpdate:
+                if _doUpdate():
                     _log.debug("Doing org.update for %s", orgname)
                     org.update()
                     _orgsByHub[hub][orgname] = org
@@ -1083,7 +1093,7 @@ def _getRepo(hub, repoName):
             reposForOrg = {}
         if repoName in reposForOrg.keys():
             repo = reposForOrg[repoName]
-            if _doUpdate:
+            if _doUpdate():
                 _log.debug("Doing repo.update for repo %s under org %s", repoName, orgname)
                 repo.update()
         else:
@@ -1116,7 +1126,7 @@ def _getRepoNoUser(hub, repoName):
     else:
         repo = _reposByName[repoName]
         # This takes 5 seconds each time and we do it a lot.
-        if _doUpdate:
+        if _doUpdate():
             _log.debug("Doing repo.update for %s", repoName)
             if repo.update():
                 _reposByName[repoName] = repo
@@ -1128,7 +1138,7 @@ def _getUserFromHub(hub):
     if hub in _hubToUser.keys():
         user = _hubToUser[hub]
         # Doing user.update takes 5-11 seconds, and we do this often
-        if _doUpdate:
+        if _doUpdate():
             _log.debug("Doing user.update from hub")
             user.update()
             _hubToUser[hub] = user
@@ -1148,7 +1158,7 @@ def _getIssueFromRepo(repo, issueNumber):
     if issueNumber in issuesForRepo.keys():
         issue = issuesForRepo[issueNumber]
         # Update calls are 5seconds each. Since we're creating the object, it shouldn't have changed on us
-        if _doUpdate:
+        if _doUpdate():
             _log.debug("Updating issue %d", issueNumber)
             if issue.update():
                 issuesForRepo[issueNumber] = issue
@@ -1226,7 +1236,9 @@ def main(argv=None):
 
         if options.updateObjects:
             _log.info("Will update Github objects as needed - adds time")
-            _doUpdate = True
+            _setUpdate(True)
+        else:
+            _setUpdate(False)
 
         hub = _getHub(token)
         _log.info(u'log on to github as user "%s"', _getUserFromHub(hub).login)
@@ -1253,7 +1265,7 @@ def main(argv=None):
 
 
 def _mainEntryPoint():
-    logging.basicConfig(level=logging.INFO)
+#    logging.basicConfig(level=logging.INFO)
     sys.exit(main())
 
 
