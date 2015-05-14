@@ -191,6 +191,8 @@ Changes
  * Watch the Github rate limit and sleep until the reset time if needed.
  * Include the CC list (minus email domain) in comments
  * Work on including the proper Github user login and having the proper Github user be the reporter / assignee.
+ * Cache all Github API objects, optionally calling update() if you specify --updateObjects
+ * New config option `ticketToStartAt` to support resuming an import
 
 Version 1.0, 2014-06-14
 
@@ -274,6 +276,7 @@ import dateutil.parser
 
 from translator import Translator, NullTranslator
 
+logging.basicConfig(format='%(asctime)s %(levelname)-8s: %(message)s',datefmt='%H:%M:%S')
 _log = logging.getLogger('tratihubis')
 
 __version__ = "1.0"
@@ -283,9 +286,12 @@ _OPTION_LABELS = 'labels'
 _OPTION_USERS = 'users'
 
 _validatedGithubTokens = set()
+_tokenToHubMap = {}
 
 _FakeMilestone = collections.namedtuple('_FakeMilestone', ['number', 'title'])
 _FakeIssue = collections.namedtuple('_FakeIssue', ['number', 'title', 'body', 'state'])
+
+_doUpdate = False
 
 csv.field_size_limit(sys.maxsize)
 
@@ -351,7 +357,7 @@ class _LabelTransformations(object):
     def _buildLabelMap(self, repo):
         assert repo is not None
 
-        _log.info(u'analyze existing labels')
+        _log.info(u'analyze existing labels (read from repo)')
         self._labelMap = {}
         for label in repo.get_labels():
             _log.debug(u'  found label "%s"', label.name)
@@ -508,7 +514,7 @@ def _createMilestoneMap(repo):
             _log.debug(u'  %d: %s', milestone.number, milestone.title)
             targetMap[milestone.title] = milestone
     result = {}
-    _log.info(u'analyze existing milestones')
+    _log.info(u'analyze existing milestones (read milestones, both open and closed)')
     addMilestones(result, 'open')
     addMilestones(result, 'closed')
     _log.info(u'  found %d milestones', len(result))
@@ -517,6 +523,7 @@ def _createMilestoneMap(repo):
 
 def _createIssueMap(repo):
     def addIssues(targetMap, state):
+        _log.debug("Looking up all issues that are %s", state)
         for issue in repo.get_issues(state=state):
             _log.debug(u'  %s: (%s) %s', issue.number, issue.state, issue.title)
             targetMap[issue.number] = issue
@@ -641,8 +648,10 @@ def migrateTickets(hub, repo, defaultToken, ticketsCsvPath,
     assert repo is not None
     assert ticketsCsvPath is not None
     assert userMapping is not None
-
-    baseUser = hub.get_user().login
+    _log.debug("Doing getuser")
+    baseUserO = _getUserFromHub(hub)
+    baseUser = baseUserO.login
+    #baseUser = hub.get_user().login
 
     tracTicketToCommentsMap = _createTicketToCommentsMap(commentsCsvPath)
     tracTicketToAttachmentsMap = _createTicketsToAttachmentsMap(attachmentsCsvPath, attachmentsPrefix)
@@ -703,14 +712,16 @@ def migrateTickets(hub, repo, defaultToken, ticketsCsvPath,
             body = ticketMap['description']
             tracReporter = ticketMap['reporter'].strip()
             tokenReporter = _tokenFor(hub, tracToGithubUserMap, tracReporter)
-            _hub = github.Github(tokenReporter)
+            _hub = _getHub(tokenReporter)
             tracOwner = ticketMap['owner'].strip()
             tokenOwner = _tokenFor(hub, tracToGithubUserMap, tracOwner)
-            _hubOwner = github.Github(tokenOwner)
+            _hubOwner = _getHub(tokenOwner)
             _log.debug("Repo will be %s", '{0}/{1}'.format(repo.owner.login, repo.name))
-            _repo = _hub.get_repo('{0}/{1}'.format(repo.owner.login, repo.name))
+            _repo = _getRepoNoUser(hub, '{0}/{1}'.format(repo.owner.login, repo.name))
+            #_repo = _hub.get_repo('{0}/{1}'.format(repo.owner.login, repo.name))
             #_repo = _getRepo(hub, '{0}/{1}'.format(repo.owner.login, repo.name))
-            githubAssignee = _hubOwner.get_user()
+            githubAssignee = _getUserFromHub(_hubOwner)
+            #githubAssignee = _hubOwner.get_user()
             ghAssigneeLogin = _loginFor(tracToGithubLoginMap, tracOwner)
             ghlRaw = tracToGithubLoginMap.get(tracOwner)
             ghlIsDefault = False
@@ -824,9 +835,11 @@ def migrateTickets(hub, repo, defaultToken, ticketsCsvPath,
                 for l in labels:
                     _addNewLabel(l, repo)
             if len(labels) > 0:
-                _hub = github.Github(defaultToken)
-                _repo = _hub.get_repo('{0}/{1}'.format(repo.owner.login, repo.name))
-                _issue = _repo.get_issue(issue.number)
+                _hub = _getHub(defaultToken)
+                _repo = _getRepoNoUser(_hub, '{0}/{1}'.format(repo.owner.login, repo.name))
+                #_repo = _hub.get_repo('{0}/{1}'.format(repo.owner.login, repo.name))
+                _issue = _getIssueFromRepo(_repo,issue.number)
+                #_issue = _repo.get_issue(issue.number)
                 _log.debug("Setting labels on issue %d: %s", issue.number, labels)
                 _issue.edit(labels=labels)
                 
@@ -835,8 +848,9 @@ def migrateTickets(hub, repo, defaultToken, ticketsCsvPath,
                 for attachment in attachmentsToAdd:
                     token = _tokenFor(repo, tracToGithubUserMap, attachment['author'], False)
                     attachmentAuthor = _userFor(token)
-                    _hub = github.Github(token)
-                    _repo = _hub.get_repo('{0}/{1}'.format(repo.owner.login, repo.name))
+                    _hub = _getHub(token)
+                    _repo = _getRepoNoUser(_hub, '{0}/{1}'.format(repo.owner.login, repo.name))
+                    #_repo = _hub.get_repo('{0}/{1}'.format(repo.owner.login, repo.name))
                     attachmentAuthorLogin = _loginFor(tracToGithubLoginMap, attachment['author'])
                     if attachmentAuthorLogin and attachmentAuthorLogin != baseUser:
                         legacyInfo = u"_%s (%s) attached [%s](%s) on %s_\n"  \
@@ -851,7 +865,8 @@ def migrateTickets(hub, repo, defaultToken, ticketsCsvPath,
                         _log.info(u'attachment legacy info:\n%s',legacyInfo)
                         
                     if not pretend:
-                        _issue = _repo.get_issue(issue.number)
+                        _issue = _getIssueFromRepo(_repo,issue.number)
+                        #_issue = _repo.get_issue(issue.number)
                         assert _issue is not None
                         _issue.create_comment(legacyInfo)
 
@@ -861,8 +876,9 @@ def migrateTickets(hub, repo, defaultToken, ticketsCsvPath,
                     token = _tokenFor(repo, tracToGithubUserMap, comment['author'], False)
                     commentAuthor = _userFor(token)
                     commentAuthorLogin = _loginFor(tracToGithubLoginMap, comment['author'])
-                    _hub = github.Github(token)
-                    _repo = _hub.get_repo('{0}/{1}'.format(repo.owner.login, repo.name))
+                    _hub = _getHub(token)
+                    _repo = _getRepoNoUser(_hub, '{0}/{1}'.format(repo.owner.login, repo.name))
+                    #_repo = _hub.get_repo('{0}/{1}'.format(repo.owner.login, repo.name))
                     
                     if commentAuthorLogin and commentAuthorLogin != baseUser:
                         commentBody = u"%s\n\n_Trac comment by %s (github user: %s) on %s_\n" % (comment['body'], comment['author'], commentAuthorLogin, comment['date'].strftime(dateformat))
@@ -881,7 +897,8 @@ def migrateTickets(hub, repo, defaultToken, ticketsCsvPath,
                     if not pretend:
                         # Here we use the token from the users map
                         # so the real github user creates teh comment if possible
-                        _issue = _repo.get_issue(issue.number)
+                        _issue = _getIssueFromRepo(_repo,issue.number)
+                        #_issue = _repo.get_issue(issue.number)
                         assert _issue is not None
                         _issue.create_comment(commentBody)
 
@@ -911,6 +928,8 @@ def _parsedOptions(arguments):
                       help="log all actions performed in console")
     parser.add_option("-s", "--skipExisting", action="store_true", default=False, dest="skipExisting",
                       help="Skip tickets whose # overlaps an existing GitHub Issue (default %default)")
+    parser.add_option("--updateObjects", action="store_true", default=False,
+                      help="Update cached Github objects (each is a 5sec call that only counts against rate limit if the object changed; usually not needed)")
     (options, others) = parser.parse_args(arguments)
     if len(others) == 0:
         parser.error(u"CONFIGFILE must be specified")
@@ -930,8 +949,8 @@ def _validateGithubUser(hub, tracUser, token):
     if token not in _validatedGithubTokens:
         try:
             _log.debug(u'  check for token "%s"', token)
-            _hub = github.Github(token)
-            githubUser = _hub.get_user()
+            _hub = _getHub(token)
+            githubUser = _getUserFromHub(_hub)
             _log.debug(u'  user is "%s"', githubUser.login)
         except Exception, e:
             import traceback
@@ -1017,22 +1036,129 @@ def _tokenFor(hub, tracToGithubUserMap, tracUser, validate=True):
         _validateGithubUser(hub, tracUser, result)
     return result
 
-def _userFor(token):
+def _getHub(token):
+    if token in _tokenToHubMap.keys():
+        hub = _tokenToHubMap[token]
+        return hub
+    _log.debug("Getting hub object from token")
     _hub = github.Github(token)
-    return _hub.get_user()
+    if _hub:
+        _tokenToHubMap[token] = _hub
+    return _hub
+
+def _userFor(token):
+    _hub = _getHub(token)
+    return _getUserFromHub(_hub)
+
+_orgsByHub = {} # key is hub object, value is hash by orgname of org objects
+_reposByOrg = {} # key is org object, value is hash by reponame of repo objects
+_reposByHub = {} # key is hub object, value is hash by reponame of repo objects
 
 def _getRepo(hub, repoName):
     # For initially getting the repo, split the repoName on / into org and repo
     if '/' in repoName:
-        (org, repoName) = repoName.split('/')
-        _log.info("Repo %s belongs to org %s", repoName, org)
-        org = hub.get_organization(org)
+        (orgname, repoName) = repoName.split('/')
+        _log.info("Repo %s belongs to org %s", repoName, orgname)
+        if hub in _orgsByHub.keys():
+            if orgname in _orgsByHub[hub].keys():
+                org = _orgsByHub[hub][orgname]
+                if _doUpdate:
+                    _log.debug("Doing org.update for %s", orgname)
+                    org.update()
+                    _orgsByHub[hub][orgname] = org
+            else:
+                _log.debug("getting org %s object", orgname)
+                org = hub.get_organization(orgname)
+                _orgsByHub[hub][orgname] = org
+        else:
+            _orgsByHub[hub] = {}
+            _log.debug("getting org %s object", orgname)
+            org = hub.get_organization(orgname)
+            _orgsByHub[hub][orgname] = org
+
         _log.debug("Org ID: %d, login: %s, name: %s, url: %s", org.id, org.login, org.name, org.url)
-        repo = org.get_repo(repoName)
+        if org in _reposByOrg.keys():
+            reposForOrg = _reposByOrg[org]
+        else:
+            reposForOrg = {}
+        if repoName in reposForOrg.keys():
+            repo = reposForOrg[repoName]
+            if _doUpdate:
+                _log.debug("Doing repo.update for repo %s under org %s", repoName, orgname)
+                repo.update()
+        else:
+            _log.debug("looking up repo %s on org", repoName)
+            repo = org.get_repo(repoName)
+        reposForOrg[repoName] = repo
+        _reposByOrg[org] = reposForOrg
         _log.debug("Repo full_name %s, id: %d, name: %s, organization name: %s, owner %s, url: %s", repo.full_name, repo.id, repo.name, repo.organization.name, repo.owner.login, repo.url)
         _log.debug("So later get_repo will get %s/%s", repo.owner.login, repo.name)
         return repo
-    return hub.get_user().get_repo(repoName)
+#    return hub.get_repo(repoName)
+    _log.debug("Doing get_repo %s on a user", repoName)
+    return _getUserFromHub(hub).get_repo(repoName)
+
+_reposNoUserByHub = {} # key is hub, value is array by repo name of repo objects
+def _getRepoNoUser(hub, repoName):
+    if hub not in _reposNoUserByHub.keys():
+        _reposByName = {}
+    else:
+        _reposByName = _reposNoUserByHub[hub]
+
+    if repoName not in _reposByName.keys():
+        # For some reason we fall in here relatively often. I suspect it is because
+        # The hub instances are for different ticket reporters
+        _log.debug("Looking up repo %s", repoName)
+        repo = hub.get_repo(repoName)
+        _reposByName[repoName] = repo
+        _reposNoUserByHub[hub] = _reposByName
+        return repo
+    else:
+        repo = _reposByName[repoName]
+        # This takes 5 seconds each time and we do it a lot.
+        if _doUpdate:
+            _log.debug("Doing repo.update for %s", repoName)
+            if repo.update():
+                _reposByName[repoName] = repo
+                _reposNoUserByHub[hub] = _reposByName
+        return repo
+
+_hubToUser = {} # key is hub object, value is user object
+def _getUserFromHub(hub):
+    if hub in _hubToUser.keys():
+        user = _hubToUser[hub]
+        # Doing user.update takes 5-11 seconds, and we do this often
+        if _doUpdate:
+            _log.debug("Doing user.update from hub")
+            user.update()
+            _hubToUser[hub] = user
+        return user
+    else:
+        _log.debug("Doing get user from hub")
+        user = hub.get_user()
+        _hubToUser[hub] = user
+        return user
+
+_repoToIssue = {} # key is repo object, value is array by issue # of issue objects
+def _getIssueFromRepo(repo, issueNumber):
+    if repo in _repoToIssue.keys():
+        issuesForRepo = repoToIssue[repo]
+    else:
+        issuesForRepo = {}
+    if issueNumber in issuesForRepo.keys():
+        issue = issuesForRepo[issueNumber]
+        # Update calls are 5seconds each. Since we're creating the object, it shouldn't have changed on us
+        if _doUpdate:
+            _log.debug("Updating issue %d", issueNumber)
+            if issue.update():
+                issuesForRepo[issueNumber] = issue
+                repoToIssue[repo] = issuesForRepo
+        return issue
+    _log.debug("looking up issue %d", issueNumber)
+    issue = repo.get_issue(issueNumber)
+    issuesForRepo[issueNumber] = issue
+    repoToIssue[repo] = issuesForRepo
+    return issue
 
 def main(argv=None):
     if argv is None:
@@ -1098,8 +1224,12 @@ def main(argv=None):
         if options.skipExisting:
             _log.warning(u'Tickets whose #s overlap with existing issues will not be copied over.')
 
-        hub = github.Github(token)
-        _log.info(u'log on to github as user "%s"', hub.get_user().login)
+        if options.updateObjects:
+            _log.info("Will update Github objects as needed - adds time")
+            _doUpdate = True
+
+        hub = _getHub(token)
+        _log.info(u'log on to github as user "%s"', _getUserFromHub(hub).login)
         repo = _getRepo(hub, repoName)
         _log.info(u'connect to github repo "%s"', repoName)
 

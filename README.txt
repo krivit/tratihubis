@@ -29,6 +29,10 @@ Edits for GENI-NSF use:
  - Include Trac CC list in ticket comment (stripping email domain from
    the CC list).
  - Change print statements to log messages.
+ - Add option `ticketToStartAt` in config file, to allow resuming import.
+ - Cache Github objects, and optionally use `update()` if
+   `--updateObjects` is supplied. API calls take 5 seconds+ each, and
+   this eliminates many calls.
 
 -----
 Usage:
