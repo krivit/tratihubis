@@ -922,8 +922,7 @@ def migrateTickets(hub, repo, defaultToken, ticketsCsvPath,
             if ticketMap['status'] == 'closed':
                 _log.info(u'  close issue')
                 if not pretend:
-                    # FIXME: perhaps it would be better if the issue instance were the last
-                    # one used to add a comment if any, as that person probably closed the ticket? That's not reliable though.
+                    # FIXME: perhaps it would be better if the issue instance were one from the assignee if any
                     issue.edit(state='closed')
         else:
             _log.info(u'skip ticket #%d: %s', ticketId, title)
