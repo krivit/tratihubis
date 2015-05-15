@@ -269,6 +269,7 @@ import optparse
 import os.path
 import StringIO
 import sys
+import time
 import token
 import tokenize
 import datetime
@@ -714,9 +715,18 @@ def migrateTickets(hub, repo, defaultToken, ticketsCsvPath,
             now = datetime.datetime.now()
             sleeptime = datetime.datetime.fromtimestamp(hub.rate_limiting_resettime) - now
             _log.info("Will sleep for %d seconds. See you at %s! Zzz.....", int(sleeptime.total_seconds()), datetime.datetime.fromtimestamp(hub.rate_limiting_resettime))
-            import time
             time.sleep(int(sleeptime.total_seconds()) + 1)
             _log.info(" ... And, we're back!")
+        elif createdCount > 0 and createdCount % 20 == 0:
+            # Argh. Github applies other abuse rate limits. See EG https://github.com/octokit/octokit.net/issues/638
+            # and https://developer.github.com/v3/#abuse-rate-limits
+            # Some people sleep 1sec per issues, other 3sec per issue. Others 70sec per 20 issues.
+            # Some comments suggest the limit is 20 create calls in a minute.
+            _log.warning("Have created another 20 issues. Sleeping 15 seconds...")
+            time.sleep(15)
+            _log.info(" ... and, we're back!")
+        elif createdCount > 0:
+            time.sleep(1)
 
         # FIXME: Parse hub.rate_limiting "(4990,5000)". If 1st # < somethign small, say 10, then at least warn, and maybe cleep until the reset time.
         ticketId = ticketMap['id']
@@ -866,13 +876,13 @@ def migrateTickets(hub, repo, defaultToken, ticketsCsvPath,
                 for l in labels:
                     _addNewLabel(l, repo)
 
-            if len(labels) > 0:
+            # Moving actual addition of labels down later to be done in a single edit call
                 # FIXME: Why is this whole block not: issue.edit(labels=labels)?
                 # That is, why get a new hub, repo, and issue instance?
                 # Done this way, the default person applies all labels.
                 # Done my suggested way, the issue reporter applies all labels, which seems better.
-                _log.debug("Setting labels on issue %d: %s", issue.number, labels)
-                issue.edit(labels=labels)
+#                issue.edit(labels=labels)
+
 #                _hub = _getHub(defaultToken)
 #                _repo = _getRepoNoUser(_hub, '{0}/{1}'.format(repo.owner.login, repo.name))
 #                #_repo = _hub.get_repo('{0}/{1}'.format(repo.owner.login, repo.name))
@@ -880,7 +890,7 @@ def migrateTickets(hub, repo, defaultToken, ticketsCsvPath,
 #                #_issue = _repo.get_issue(issue.number)
 #                _log.debug("Setting labels on issue %d: %s", issue.number, labels)
 #                _issue.edit(labels=labels)
-                
+
             attachmentsToAdd = tracTicketToAttachmentsMap.get(ticketId)
             if attachmentsToAdd is not None:
                 for attachment in attachmentsToAdd:
@@ -943,12 +953,28 @@ def migrateTickets(hub, repo, defaultToken, ticketsCsvPath,
                         #_issue = _repo.get_issue(issue.number)
                         assert _issue is not None
                         _issue.create_comment(commentBody)
+            # Done adding any comments
 
-            if ticketMap['status'] == 'closed':
-                _log.info(u'  close issue')
-                if not pretend:
-                    # FIXME: perhaps it would be better if the issue instance were one from the assignee if any
-                    issue.edit(state='closed')
+            # Now edit the issue: apply labels and close it if necessary
+            if len(labels) > 0 or ticketMap['status'] == 'closed':
+                if len(labels) > 0:
+                    _log.debug("Setting labels on issue %d: %s", issue.number, labels)
+                    if ticketMap['status'] == 'closed':
+                        _log.info(u'  close issue')
+                        if not pretend:
+                            issue.edit(labels=labels, state='closed')
+                    elif not pretend:
+                        issue.edit(labels=labels)
+                elif ticketMap['status'] == 'closed':
+                    _log.info(u'  close issue')
+                    if not pretend:
+                        issue.edit(state='closed')
+
+#            if ticketMap['status'] == 'closed':
+#                _log.info(u'  close issue')
+#                if not pretend:
+#                    # FIXME: perhaps it would be better if the issue instance were one from the assignee if any
+#                    issue.edit(state='closed')
             _createdIssues.append(ticketId)
         else:
             _log.info(u'skip ticket #%d: %s', ticketId, title)
