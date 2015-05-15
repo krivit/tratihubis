@@ -722,8 +722,8 @@ def migrateTickets(hub, repo, defaultToken, ticketsCsvPath,
             # and https://developer.github.com/v3/#abuse-rate-limits
             # Some people sleep 1sec per issues, other 3sec per issue. Others 70sec per 20 issues.
             # Some comments suggest the limit is 20 create calls in a minute.
-            _log.warning("Have created another 20 issues. Sleeping 15 seconds...")
-            time.sleep(15)
+            _log.warning("Have created another 20 issues. Sleeping 65 seconds...")
+            time.sleep(65)
             _log.info(" ... and, we're back!")
         elif createdCount > 0:
             time.sleep(3)
@@ -852,6 +852,7 @@ def migrateTickets(hub, repo, defaultToken, ticketsCsvPath,
                             issue = _repo.create_issue(title, body, milestone=milestone)
                 except github.GithubException, ghe:
                     _log.error("Failed to create issue for ticket %d: %s", ticketId, ghe)
+                    #_log.info("Title: '%s', assignee: %s, milestone: %s, body: '%s'", title, useLogin, milestone, body)
 #                    if ghe.status == 403 and "abuse detection mechanism" in ghe.data:
 #                        # Could we sleep and retry?
 #                        _log.warning("Hit the abuse limits! Sleep for a minute and see if we can continue?")
@@ -927,6 +928,7 @@ def migrateTickets(hub, repo, defaultToken, ticketsCsvPath,
                             _issue.create_comment(legacyInfo)
                         except github.GithubException, ghe:
                             _log.error("Failed to create comment about attachment for ticket %d: %s", ticketId, ghe)
+                            _log.info("Attachment comment: '%s'", _shortened(legacyInfo))
                             raise
 
             commentsToAdd = tracTicketToCommentsMap.get(ticketId)
@@ -967,6 +969,7 @@ def migrateTickets(hub, repo, defaultToken, ticketsCsvPath,
                             _issue.create_comment(commentBody)
                         except github.GithubException, ghe:
                             _log.error("Failed to create comment for ticket %d: %s", ticketId, ghe)
+                            _log.info("Comment should be: '%s'", _shortened(commentBody))
                             raise
             # Done adding any comments
 
