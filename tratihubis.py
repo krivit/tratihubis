@@ -372,7 +372,12 @@ class _LabelTransformations(object):
 
         _log.info(u'analyze existing labels (read from repo)')
         self._labelMap = {}
-        for label in repo.get_labels():
+        if len(_repoLabels) == 0:
+            _log.debug("About to do repo.get_labels")
+            labels = repo.get_labels()
+        else:
+            labels = _repoLabels
+        for label in labels:
             _log.debug(u'  found label "%s"', label.name)
             self._labelMap[label.name] = label
         _log.info(u'  found %d labels', len(self._labelMap))
@@ -469,10 +474,16 @@ def _shortened(text):
         result = text
     return result
 
-
+_repoLabels = []
 def _addNewLabel(label, repo):
-    if label not in [l.name for l in repo.get_labels()]:
-        repo.create_label(label, '5319e7')
+    if label and len(_repoLabels) == 0:
+        _log.debug("About to do repo.get_labels")
+        labels = repo.get_labels()
+        for l in labels:
+            _repoLabels.append(l)
+    if label not in [l.name for l in _repoLabels]:
+        lObject = repo.create_label(label, '5319e7')
+        _repoLabels.append(lObject)
 
 def _tracTicketMaps(ticketsCsvPath):
     """
