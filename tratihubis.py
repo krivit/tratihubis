@@ -291,6 +291,9 @@ _tokenToHubMap = {}
 _FakeMilestone = collections.namedtuple('_FakeMilestone', ['number', 'title'])
 _FakeIssue = collections.namedtuple('_FakeIssue', ['number', 'title', 'body', 'state'])
 
+_editedIssues = []
+_createdIssues = []
+
 # For storing if we should call update() on github objects
 _doUpdateVar = {}
 
@@ -755,11 +758,18 @@ def migrateTickets(hub, repo, defaultToken, ticketsCsvPath,
                 milestoneNumber = 0
             _log.info(u'convert ticket #%d: %s', ticketId, _shortened(title))
 
+            origtitle = title
             title = translator.translate(title)
+            if title != origtitle:
+                if ticketId not in _editedIssues:
+                    _editedIssues.append(ticketId)
             origbody = body
             body = translator.translate(body, ticketId=ticketId)
-            if body != origbody and pretend:
-                _log.debug("Translated body from '%s' to '%s'", origbody, body)
+            if body != origbody:
+                if ticketId not in _editedIssues:
+                    _editedIssues.append(ticketId)
+                if pretend:
+                    _log.debug("Translated body from '%s' to '%s'", origbody, body)
 
             dateformat = "%m-%d-%Y at %H:%M"
             ticketString = '#{0}'.format(ticketId)
@@ -906,7 +916,11 @@ def migrateTickets(hub, repo, defaultToken, ticketsCsvPath,
 
                         _log.info(u'  add comment by %s: %r', commentAuthor.login, _shortened(commentBody))
 
+                    origComment = commentBody
                     commentBody = translator.translate(commentBody, ticketId=ticketId)
+                    if origComment != commentBody:
+                        if ticketId not in _editedIssues:
+                            _editedIssues.append(ticketId)
 
                     if ticketsToRender:
                         _log.info(u'commentBody:\n%s',commentBody)
@@ -924,12 +938,15 @@ def migrateTickets(hub, repo, defaultToken, ticketsCsvPath,
                 if not pretend:
                     # FIXME: perhaps it would be better if the issue instance were one from the assignee if any
                     issue.edit(state='closed')
+            _createdIssues.append(ticketId)
         else:
             _log.info(u'skip ticket #%d: %s', ticketId, title)
     if pretend:
         _log.info(u'Finished pretend creating %d issues from %d tickets', createdCount, len(ticketsToIssuesMap))
     else:
         _log.info(u'Finished really creating %d issues from %d tickets', createdCount, len(ticketsToIssuesMap))
+    _log.info("Tickets with wiki to markdown edits: %s", _editedIssues)
+    _log.info("Issues created: %d. Last issue created: #%d", len(_createdIssues), _createdIssues[-1])
 
 def _parsedOptions(arguments):
     assert arguments is not None
@@ -1270,6 +1287,8 @@ def main(argv=None):
         _log.error(error)
     except KeyboardInterrupt:
         _log.warning(u"interrupted by user")
+        _log.info("Tickets with wiki to markdown edits: %s", _editedIssues)
+        _log.info("Issues created: %d. Last issue created: #%d", len(_createdIssues), _createdIssues[-1])
     except Exception, error:
         _log.exception(error)
     return exitCode
