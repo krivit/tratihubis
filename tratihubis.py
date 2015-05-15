@@ -372,12 +372,12 @@ class _LabelTransformations(object):
 
         _log.info(u'analyze existing labels (read from repo)')
         self._labelMap = {}
-        if len(_repoLabels) == 0:
+        if len(_repoLabels) == 0 or _doUpdate():
             _log.debug("About to do repo.get_labels")
             labels = repo.get_labels()
-        else:
-            labels = _repoLabels
-        for label in labels:
+            for l in labels:
+                _repoLabels.append(l)
+        for label in _repoLabels:
             _log.debug(u'  found label "%s"', label.name)
             self._labelMap[label.name] = label
         _log.info(u'  found %d labels', len(self._labelMap))
@@ -476,7 +476,7 @@ def _shortened(text):
 
 _repoLabels = []
 def _addNewLabel(label, repo):
-    if label and len(_repoLabels) == 0:
+    if label and (len(_repoLabels) == 0 or _doUpdate()):
         _log.debug("About to do repo.get_labels")
         labels = repo.get_labels()
         for l in labels:
