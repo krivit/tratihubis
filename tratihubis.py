@@ -726,7 +726,7 @@ def migrateTickets(hub, repo, defaultToken, ticketsCsvPath,
             time.sleep(15)
             _log.info(" ... and, we're back!")
         elif createdCount > 0:
-            time.sleep(1)
+            time.sleep(3)
 
         # FIXME: Parse hub.rate_limiting "(4990,5000)". If 1st # < somethign small, say 10, then at least warn, and maybe cleep until the reset time.
         ticketId = ticketMap['id']
@@ -838,17 +838,24 @@ def migrateTickets(hub, repo, defaultToken, ticketsCsvPath,
                 _log.debug("Either had no ghAssignee or it is assigned to me by default, so leave it unassigned")
             issue = None
             if not pretend:
-                if milestone is None:
-                    if useLogin:
-                        issue = _repo.create_issue(title, body, assignee=useLogin)
+                try:
+                    if milestone is None:
+                        if useLogin:
+                            issue = _repo.create_issue(title, body, assignee=useLogin)
+                        else:
+                            issue = _repo.create_issue(title, body)
                     else:
-                        issue = _repo.create_issue(title, body)
-                else:
-                    if useLogin:
+                        if useLogin:
 #                    if githubAssigneeLogin:
-                        issue = _repo.create_issue(title, body, assignee=useLogin, milestone=milestone)
-                    else:
-                        issue = _repo.create_issue(title, body, milestone=milestone)
+                            issue = _repo.create_issue(title, body, assignee=useLogin, milestone=milestone)
+                        else:
+                            issue = _repo.create_issue(title, body, milestone=milestone)
+                except github.GithubException, ghe:
+                    _log.error("Failed to create issue for ticket %d: %s", ticketId, ghe)
+#                    if ghe.status == 403 and "abuse detection mechanism" in ghe.data:
+#                        # Could we sleep and retry?
+#                        _log.warning("Hit the abuse limits! Sleep for a minute and see if we can continue?")
+                    raise
             else:
                 issue = _FakeIssue(fakeIssueId, title, body, 'open')
                 fakeIssueId += 1
@@ -916,7 +923,11 @@ def migrateTickets(hub, repo, defaultToken, ticketsCsvPath,
                         _issue = _getIssueFromRepo(_repo,issue.number)
                         #_issue = _repo.get_issue(issue.number)
                         assert _issue is not None
-                        _issue.create_comment(legacyInfo)
+                        try:
+                            _issue.create_comment(legacyInfo)
+                        except github.GithubException, ghe:
+                            _log.error("Failed to create comment about attachment for ticket %d: %s", ticketId, ghe)
+                            raise
 
             commentsToAdd = tracTicketToCommentsMap.get(ticketId)
             if commentsToAdd is not None:
@@ -952,7 +963,11 @@ def migrateTickets(hub, repo, defaultToken, ticketsCsvPath,
                         _issue = _getIssueFromRepo(_repo,issue.number)
                         #_issue = _repo.get_issue(issue.number)
                         assert _issue is not None
-                        _issue.create_comment(commentBody)
+                        try:
+                            _issue.create_comment(commentBody)
+                        except github.GithubException, ghe:
+                            _log.error("Failed to create comment for ticket %d: %s", ticketId, ghe)
+                            raise
             # Done adding any comments
 
             # Now edit the issue: apply labels and close it if necessary
@@ -1321,12 +1336,17 @@ def main(argv=None):
         
         exitCode = 0
     except (EnvironmentError, OSError, _ConfigError, _CsvDataError), error:
+        exitCode = str(error)
         _log.error(error)
     except KeyboardInterrupt:
+        exitCode = str(error)
         _log.warning(u"interrupted by user")
         _log.info("Tickets with wiki to markdown edits: %s", _editedIssues)
         _log.info("Issues created: %d. Last issue created: #%d", len(_createdIssues), _createdIssues[-1])
     except Exception, error:
+        exitCode = str(error)
+        _log.info("Tickets with wiki to markdown edits: %s", _editedIssues)
+        _log.info("Issues created: %d. Last issue created: #%d", len(_createdIssues), _createdIssues[-1])
         _log.exception(error)
     return exitCode
 
