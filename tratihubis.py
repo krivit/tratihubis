@@ -719,7 +719,9 @@ def migrateTickets(hub, repo, defaultToken, ticketsCsvPath,
     fakeIssueId = 1 + len(existingIssues)
     createdCount = 0
     for ticketMap in _tracTicketMaps(ticketsCsvPath):
+        _log.debug("")
         _log.debug("Rate limit status: %r resets at %r", hub.rate_limiting, datetime.datetime.fromtimestamp(hub.rate_limiting_resettime))
+        _log.debug("%d issues created so far (sleep every %d)...", createdCount, createsBeforeSleep)
         # rate limit is 5000 per hour, after which you get an error: "403 Forbidden" with message "API rate limit exceeded...."
         if hub.rate_limiting[0] < 10:
             # This solution to the rate limit is fairly crude: when we're about to hit the limit, sleep until the reset time.
@@ -729,7 +731,7 @@ def migrateTickets(hub, repo, defaultToken, ticketsCsvPath,
             # FIXME: TZ handling
             now = datetime.datetime.now()
             sleeptime = datetime.datetime.fromtimestamp(hub.rate_limiting_resettime) - now
-            _log.info("Will sleep for %d seconds. See you at %s! Zzz.....", int(sleeptime.total_seconds()), datetime.datetime.fromtimestamp(hub.rate_limiting_resettime))
+            _log.info("Will sleep for %d seconds. See you at %s! \nZzz.....", int(sleeptime.total_seconds()), datetime.datetime.fromtimestamp(hub.rate_limiting_resettime))
             time.sleep(int(sleeptime.total_seconds()) + 1)
             _log.info(" ... And, we're back!")
         elif createdCount > 0 and createdCount % createsBeforeSleep == 0:
@@ -737,16 +739,20 @@ def migrateTickets(hub, repo, defaultToken, ticketsCsvPath,
             # and https://developer.github.com/v3/#abuse-rate-limits
             # Some people sleep 1sec per issues, other 3sec per issue. Others 70sec per 20 issues.
             # Some comments suggest the limit is 20 create calls in a minute.
-            _log.warning("Have created another %d issues. Sleeping %d seconds...", createsBeforeSleep, secondsToSleep)
+            _log.warning("Have created another %d issues. Sleeping %d seconds...\n...", createsBeforeSleep, secondsToSleep)
             time.sleep(secondsToSleep)
             _log.info(" ... and, we're back!")
         else:
             didSleep = False
             for t in _createsByToken:
+                    _h = _getHub(t)
+                    _u = _getUserFromHub(_h).login
+                    _log.debug("User %s has %d creates", _u, _createsByToken[t])
+            for t in _createsByToken:
                 if _createsByToken[t] % createsBeforeSleep == 0:
                     _h = _getHub(t)
                     _u = _getUserFromHub(_h).login
-                    _log.info("User %s has %d creates. Sleep %d seconds...", _u, _createsByToken[t], secondsToSleep)
+                    _log.info("User %s has %d creates. Sleep %d seconds...\n...", _u, _createsByToken[t], secondsToSleep)
                     time.sleep(secondsToSleep)
                     _log.info("... and, we're back!")
                     didSleep = True
@@ -1386,7 +1392,7 @@ def main(argv=None):
     except (EnvironmentError, OSError, _ConfigError, _CsvDataError), error:
         exitCode = str(error)
         _log.error(error)
-    except KeyboardInterrupt:
+    except KeyboardInterrupt, error:
         exitCode = str(error)
         _log.warning(u"interrupted by user")
         _log.info("Tickets with wiki to markdown edits: %s", _editedIssues)
