@@ -295,6 +295,11 @@ _FakeIssue = collections.namedtuple('_FakeIssue', ['number', 'title', 'body', 's
 _editedIssues = []
 _createdIssues = []
 
+# Track how many creates each token has done. To avoid abuse rate limits.
+# The limit is surely for over some period of time, but I don't know what time frame. So instead,
+# just plan to sleep for M seconds every N creates by a given token
+_createsByToken = {}
+
 # For storing if we should call update() on github objects
 _doUpdateVar = {}
 
@@ -477,6 +482,7 @@ def _shortened(text):
 
 _repoLabels = []
 def _addNewLabel(label, repo):
+    addCnt = 0
     if label and (len(_repoLabels) == 0 or _doUpdate()):
         _log.debug("About to do repo.get_labels")
         labels = repo.get_labels()
@@ -485,6 +491,8 @@ def _addNewLabel(label, repo):
     if label not in [l.name for l in _repoLabels]:
         lObject = repo.create_label(label, '5319e7')
         _repoLabels.append(lObject)
+        addCnt += 1
+    return addCnt
 
 def _tracTicketMaps(ticketsCsvPath):
     """
@@ -673,6 +681,13 @@ def migrateTickets(hub, repo, defaultToken, ticketsCsvPath,
     assert repo is not None
     assert ticketsCsvPath is not None
     assert userMapping is not None
+
+    # How many issues are created before sleeping,
+    # or how many creates of anything by a given token before sleeping
+    createsBeforeSleep = 20
+    # If the above # is hit, how long in seconds to sleep
+    secondsToSleep = 65
+
     _log.debug("Doing getuser")
     baseUserO = _getUserFromHub(hub)
     baseUser = baseUserO.login
@@ -717,18 +732,28 @@ def migrateTickets(hub, repo, defaultToken, ticketsCsvPath,
             _log.info("Will sleep for %d seconds. See you at %s! Zzz.....", int(sleeptime.total_seconds()), datetime.datetime.fromtimestamp(hub.rate_limiting_resettime))
             time.sleep(int(sleeptime.total_seconds()) + 1)
             _log.info(" ... And, we're back!")
-        elif createdCount > 0 and createdCount % 20 == 0:
+        elif createdCount > 0 and createdCount % createsBeforeSleep == 0:
             # Argh. Github applies other abuse rate limits. See EG https://github.com/octokit/octokit.net/issues/638
             # and https://developer.github.com/v3/#abuse-rate-limits
             # Some people sleep 1sec per issues, other 3sec per issue. Others 70sec per 20 issues.
             # Some comments suggest the limit is 20 create calls in a minute.
-            _log.warning("Have created another 20 issues. Sleeping 65 seconds...")
-            time.sleep(65)
+            _log.warning("Have created another %d issues. Sleeping %d seconds...", createsBeforeSleep, secondsToSleep)
+            time.sleep(secondsToSleep)
             _log.info(" ... and, we're back!")
-        elif createdCount > 0:
-            time.sleep(3)
+        else:
+            didSleep = False
+            for t in _createsByToken:
+                if _createsByToken[t] % createsBeforeSleep == 0:
+                    _h = _getHub(t)
+                    _u = _getUserFromHub(_h).login
+                    _log.info("User %s has %d creates. Sleep %d seconds...", _u, _createsByToken[t], secondsToSleep)
+                    time.sleep(secondsToSleep)
+                    _log.info("... and, we're back!")
+                    didSleep = True
+                    break
+            if not didSleep and createdCount > 0:
+                time.sleep(3)
 
-        # FIXME: Parse hub.rate_limiting "(4990,5000)". If 1st # < somethign small, say 10, then at least warn, and maybe cleep until the reset time.
         ticketId = ticketMap['id']
         # FIXME: This probably doesn't do the right thing if the issues to convert doesn't start with 1
         if skipExisting and ticketId in existingIssues:
@@ -769,6 +794,10 @@ def migrateTickets(hub, repo, defaultToken, ticketsCsvPath,
                     _log.info(u'Existing milestones: %s', existingMilestones)
                     if not pretend:
                         newMilestone = repo.create_milestone(milestoneTitle)
+                        if defaultToken in _createsByToken:
+                            _createsByToken[defaultToken] += 1
+                        else:
+                            _createsByToken[defaultToken] = 1
                     else:
                         newMilestone = _FakeMilestone(len(existingMilestones) + 1, milestoneTitle)
                     existingMilestones[milestoneTitle] = newMilestone
@@ -850,6 +879,10 @@ def migrateTickets(hub, repo, defaultToken, ticketsCsvPath,
                             issue = _repo.create_issue(title, body, assignee=useLogin, milestone=milestone)
                         else:
                             issue = _repo.create_issue(title, body, milestone=milestone)
+                    if tokenReporter in _createsByToken:
+                        _createsByToken[tokenReporter] += 1
+                    else:
+                        _createsByToken[tokenReporter] = 1
                 except github.GithubException, ghe:
                     _log.error("Failed to create issue for ticket %d: %s", ticketId, ghe)
                     #_log.info("Title: '%s', assignee: %s, milestone: %s, body: '%s'", title, useLogin, milestone, body)
@@ -882,7 +915,11 @@ def migrateTickets(hub, repo, defaultToken, ticketsCsvPath,
                     labels.append(ticketMap['component'])
             if not pretend:
                 for l in labels:
-                    _addNewLabel(l, repo)
+                    addCnt = _addNewLabel(l, repo)
+                    if defaultToken in _createsByToken:
+                        _createsByToken[defaultToken] += addCnt
+                    else:
+                        _createsByToken[defaultToken] = addCnt
 
             # Moving actual addition of labels down later to be done in a single edit call
                 # FIXME: Why is this whole block not: issue.edit(labels=labels)?
@@ -926,6 +963,10 @@ def migrateTickets(hub, repo, defaultToken, ticketsCsvPath,
                         assert _issue is not None
                         try:
                             _issue.create_comment(legacyInfo)
+                            if token in _createsByToken:
+                                _createsByToken[token] += 1
+                            else:
+                                _createsByToken[token] = 1
                         except github.GithubException, ghe:
                             _log.error("Failed to create comment about attachment for ticket %d: %s", ticketId, ghe)
                             _log.info("Attachment comment: '%s'", _shortened(legacyInfo))
@@ -967,6 +1008,10 @@ def migrateTickets(hub, repo, defaultToken, ticketsCsvPath,
                         assert _issue is not None
                         try:
                             _issue.create_comment(commentBody)
+                            if token in _createsByToken:
+                                _createsByToken[token] += 1
+                            else:
+                                _createsByToken[token] = 1
                         except github.GithubException, ghe:
                             _log.error("Failed to create comment for ticket %d: %s", ticketId, ghe)
                             _log.info("Comment should be: '%s'", _shortened(commentBody))
