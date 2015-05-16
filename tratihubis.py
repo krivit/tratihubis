@@ -686,7 +686,7 @@ def migrateTickets(hub, repo, defaultToken, ticketsCsvPath,
     # or how many creates of anything by a given token before sleeping
     createsBeforeSleep = 20
     # If the above # is hit, how long in seconds to sleep
-    secondsToSleep = 65
+    secondsToSleep = 50
 
     _log.debug("Doing getuser")
     baseUserO = _getUserFromHub(hub)
@@ -718,10 +718,13 @@ def migrateTickets(hub, repo, defaultToken, ticketsCsvPath,
 
     fakeIssueId = 1 + len(existingIssues)
     createdCount = 0
+    createdCountLastSleep = 0 # num issues created when last did long sleep
+    sleepsByToken = {} # create count when last slept for this token
     for ticketMap in _tracTicketMaps(ticketsCsvPath):
         _log.debug("")
         _log.debug("Rate limit status: %r resets at %r", hub.rate_limiting, datetime.datetime.fromtimestamp(hub.rate_limiting_resettime))
-        _log.debug("%d issues created so far (sleep every %d)...", createdCount, createsBeforeSleep)
+#        _log.debug("%d issues created so far (sleep every %d)...", createdCount, createsBeforeSleep)
+        _log.debug("%d issues created so far...", createdCount)
         # rate limit is 5000 per hour, after which you get an error: "403 Forbidden" with message "API rate limit exceeded...."
         if hub.rate_limiting[0] < 10:
             # This solution to the rate limit is fairly crude: when we're about to hit the limit, sleep until the reset time.
@@ -734,23 +737,25 @@ def migrateTickets(hub, repo, defaultToken, ticketsCsvPath,
             _log.info("Will sleep for %d seconds. See you at %s! \nZzz.....", int(sleeptime.total_seconds()), datetime.datetime.fromtimestamp(hub.rate_limiting_resettime))
             time.sleep(int(sleeptime.total_seconds()) + 1)
             _log.info(" ... And, we're back!")
-        elif createdCount > 0 and createdCount % createsBeforeSleep == 0:
-            # Argh. Github applies other abuse rate limits. See EG https://github.com/octokit/octokit.net/issues/638
-            # and https://developer.github.com/v3/#abuse-rate-limits
-            # Some people sleep 1sec per issues, other 3sec per issue. Others 70sec per 20 issues.
-            # Some comments suggest the limit is 20 create calls in a minute.
-            _log.warning("Have created another %d issues. Sleeping %d seconds...\n...", createsBeforeSleep, secondsToSleep)
-            if not pretend:
-                time.sleep(secondsToSleep)
-            _log.info(" ... and, we're back!")
-        else:
+            createdCountLastSleep = createdCount
+#        elif createdCount > 0 and createdCount % createsBeforeSleep == 0 and createdCount != createdCountLastSleep:
+#            # Argh. Github applies other abuse rate limits. See EG https://github.com/octokit/octokit.net/issues/638
+#            # and https://developer.github.com/v3/#abuse-rate-limits
+#            # Some people sleep 1sec per issues, other 3sec per issue. Others 70sec per 20 issues.
+#            # Some comments suggest the limit is 20 create calls in a minute.
+#            _log.warning("Have created another %d issues. Sleeping %d seconds...\n...", createsBeforeSleep, secondsToSleep)
+#            if not pretend:
+#                time.sleep(secondsToSleep)
+#            _log.info(" ... and, we're back!")
+#            createdCountLastSleep = createdCount
+        elif createdCountLastSleep != createdCount:
             didSleep = False
             for t in _createsByToken:
-                    _h = _getHub(t)
-                    _u = _getUserFromHub(_h).login
-                    _log.debug("User %s has %d creates", _u, _createsByToken[t])
+                _h = _getHub(t)
+                _u = _getUserFromHub(_h).login
+                _log.debug("User %s has %d creates", _u, _createsByToken[t])
             for t in _createsByToken:
-                if _createsByToken[t] % createsBeforeSleep == 0:
+                if _createsByToken[t] % createsBeforeSleep == 0 and (t not in sleepsByToken or _createsByToken[t] != sleepsByToken[t]):
                     _h = _getHub(t)
                     _u = _getUserFromHub(_h).login
                     _log.info("User %s has %d creates. Sleep %d seconds...\n...", _u, _createsByToken[t], secondsToSleep)
@@ -758,9 +763,11 @@ def migrateTickets(hub, repo, defaultToken, ticketsCsvPath,
                         time.sleep(secondsToSleep)
                     _log.info("... and, we're back!")
                     didSleep = True
+                    createdCountLastSleep = createdCount
+                    sleepsByToken[t] = _createsByToken[t]
                     break
             if not didSleep and createdCount > 0 and not pretend:
-                time.sleep(3)
+                time.sleep(2)
 
         ticketId = ticketMap['id']
         # FIXME: This probably doesn't do the right thing if the issues to convert doesn't start with 1
@@ -808,6 +815,10 @@ def migrateTickets(hub, repo, defaultToken, ticketsCsvPath,
                             _createsByToken[defaultToken] = 1
                     else:
                         newMilestone = _FakeMilestone(len(existingMilestones) + 1, milestoneTitle)
+                        if defaultToken in _createsByToken:
+                            _createsByToken[defaultToken] += 1
+                        else:
+                            _createsByToken[defaultToken] = 1
                     existingMilestones[milestoneTitle] = newMilestone
                 milestone = existingMilestones[milestoneTitle]
                 milestoneNumber = milestone.number
@@ -901,6 +912,10 @@ def migrateTickets(hub, repo, defaultToken, ticketsCsvPath,
             else:
                 issue = _FakeIssue(fakeIssueId, title, body, 'open')
                 fakeIssueId += 1
+                if tokenReporter in _createsByToken:
+                    _createsByToken[tokenReporter] += 1
+                else:
+                    _createsByToken[tokenReporter] = 1
             createdCount += 1
                 
 #            if githubAssigneeLogin:
@@ -979,6 +994,11 @@ def migrateTickets(hub, repo, defaultToken, ticketsCsvPath,
                             _log.error("Failed to create comment about attachment for ticket %d: %s", ticketId, ghe)
                             _log.info("Attachment comment: '%s'", _shortened(legacyInfo))
                             raise
+                    else:
+                        if token in _createsByToken:
+                            _createsByToken[token] += 1
+                        else:
+                            _createsByToken[token] = 1
 
             commentsToAdd = tracTicketToCommentsMap.get(ticketId)
             if commentsToAdd is not None:
@@ -1024,6 +1044,11 @@ def migrateTickets(hub, repo, defaultToken, ticketsCsvPath,
                             _log.error("Failed to create comment for ticket %d: %s", ticketId, ghe)
                             _log.info("Comment should be: '%s'", _shortened(commentBody))
                             raise
+                    else:
+                        if token in _createsByToken:
+                            _createsByToken[token] += 1
+                        else:
+                            _createsByToken[token] = 1
             # Done adding any comments
 
             # Now edit the issue: apply labels and close it if necessary
