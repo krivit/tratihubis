@@ -740,7 +740,8 @@ def migrateTickets(hub, repo, defaultToken, ticketsCsvPath,
             # Some people sleep 1sec per issues, other 3sec per issue. Others 70sec per 20 issues.
             # Some comments suggest the limit is 20 create calls in a minute.
             _log.warning("Have created another %d issues. Sleeping %d seconds...\n...", createsBeforeSleep, secondsToSleep)
-            time.sleep(secondsToSleep)
+            if not pretend:
+                time.sleep(secondsToSleep)
             _log.info(" ... and, we're back!")
         else:
             didSleep = False
@@ -753,11 +754,12 @@ def migrateTickets(hub, repo, defaultToken, ticketsCsvPath,
                     _h = _getHub(t)
                     _u = _getUserFromHub(_h).login
                     _log.info("User %s has %d creates. Sleep %d seconds...\n...", _u, _createsByToken[t], secondsToSleep)
-                    time.sleep(secondsToSleep)
+                    if not pretend:
+                        time.sleep(secondsToSleep)
                     _log.info("... and, we're back!")
                     didSleep = True
                     break
-            if not didSleep and createdCount > 0:
+            if not didSleep and createdCount > 0 and not pretend:
                 time.sleep(3)
 
         ticketId = ticketMap['id']
