@@ -670,6 +670,7 @@ def createTicketsToIssuesMap(ticketsCsvPath, existingIssues, firstTicketIdToConv
 
     return ticketsToIssuesMap
 
+sleepsByToken = {} # create count when last slept for this token
 def migrateTickets(hub, repo, defaultToken, ticketsCsvPath,
                    commentsCsvPath=None, attachmentsCsvPath=None,
                    firstTicketIdToConvert=1, lastTicketIdToConvert=0,
@@ -719,7 +720,6 @@ def migrateTickets(hub, repo, defaultToken, ticketsCsvPath,
     fakeIssueId = 1 + len(existingIssues)
     createdCount = 0
     createdCountLastSleep = 0 # num issues created when last did long sleep
-    sleepsByToken = {} # create count when last slept for this token
     for ticketMap in _tracTicketMaps(ticketsCsvPath):
         _log.debug("")
         _log.debug("Rate limit status: %r resets at %r", hub.rate_limiting, datetime.datetime.fromtimestamp(hub.rate_limiting_resettime))
@@ -755,7 +755,9 @@ def migrateTickets(hub, repo, defaultToken, ticketsCsvPath,
                 _u = _getUserFromHub(_h).login
                 _log.debug("User %s has %d creates", _u, _createsByToken[t])
             for t in _createsByToken:
-                if _createsByToken[t] % createsBeforeSleep == 0 and (t not in sleepsByToken or _createsByToken[t] != sleepsByToken[t]):
+                if (t not in sleepsByToken and _createsByToken[t] >= createsBeforeSleep) or \
+                   (t in sleepsByToken and (_createsByToken[t] - sleepsByToken[t] >= createsBeforeSleep)):
+#                if _createsByToken[t] % createsBeforeSleep == 0 and (t not in sleepsByToken or _createsByToken[t] != sleepsByToken[t]):
                     _h = _getHub(t)
                     _u = _getUserFromHub(_h).login
                     _log.info("User %s has %d creates. Sleep %d seconds...\n...", _u, _createsByToken[t], secondsToSleep)
@@ -1030,7 +1032,7 @@ def migrateTickets(hub, repo, defaultToken, ticketsCsvPath,
 
                     if not pretend:
                         # Here we use the token from the users map
-                        # so the real github user creates teh comment if possible
+                        # so the real github user creates the comment if possible
                         _issue = _getIssueFromRepo(_repo,issue.number)
                         #_issue = _repo.get_issue(issue.number)
                         assert _issue is not None
@@ -1053,6 +1055,15 @@ def migrateTickets(hub, repo, defaultToken, ticketsCsvPath,
 
             # Now edit the issue: apply labels and close it if necessary
             if len(labels) > 0 or ticketMap['status'] == 'closed':
+                # 'issue' is by the reporter
+                # Make the issue owner make these changes:
+                # (note that _hubOwner itself might not be quite right but with
+                # useLogin it should be)
+                if useLogin and githubAssignee:
+                    _repo = _getRepoNoUser(_hubOwner, '{0}/{1}'.format(repo.owner.login, repo.name))
+                    _issue = _getIssueFromRepo(_repo,issue.number)
+                else:
+                    _issue = issue
                 if len(labels) > 0:
                     _log.debug("Setting labels on issue %d: %s", issue.number, labels)
                     if ticketMap['status'] == 'closed':
@@ -1060,11 +1071,11 @@ def migrateTickets(hub, repo, defaultToken, ticketsCsvPath,
                         if not pretend:
                             issue.edit(labels=labels, state='closed')
                     elif not pretend:
-                        issue.edit(labels=labels)
+                        _issue.edit(labels=labels)
                 elif ticketMap['status'] == 'closed':
                     _log.info(u'  close issue')
                     if not pretend:
-                        issue.edit(state='closed')
+                        _issue.edit(state='closed')
 
 #            if ticketMap['status'] == 'closed':
 #                _log.info(u'  close issue')
@@ -1078,8 +1089,6 @@ def migrateTickets(hub, repo, defaultToken, ticketsCsvPath,
         _log.info(u'Finished pretend creating %d issues from %d tickets', createdCount, len(ticketsToIssuesMap))
     else:
         _log.info(u'Finished really creating %d issues from %d tickets', createdCount, len(ticketsToIssuesMap))
-    _log.info("Tickets with wiki to markdown edits: %s", _editedIssues)
-    _log.info("Issues created: %d. Last issue created: #%d", len(_createdIssues), _createdIssues[-1])
 
 def _parsedOptions(arguments):
     assert arguments is not None
@@ -1422,13 +1431,23 @@ def main(argv=None):
     except KeyboardInterrupt, error:
         exitCode = str(error)
         _log.warning(u"interrupted by user")
-        _log.info("Tickets with wiki to markdown edits: %s", _editedIssues)
-        _log.info("Issues created: %d. Last issue created: #%d", len(_createdIssues), _createdIssues[-1])
     except Exception, error:
         exitCode = str(error)
-        _log.info("Tickets with wiki to markdown edits: %s", _editedIssues)
-        _log.info("Issues created: %d. Last issue created: #%d", len(_createdIssues), _createdIssues[-1])
         _log.exception(error)
+
+    _log.info("Tickets with wiki to markdown edits: %s", _editedIssues)
+    if len(_createdIssues) > 0:
+        _log.info("Issues created: %d. Last issue created: #%d", len(_createdIssues), _createdIssues[-1])
+    else:
+        _log.info("No issues created")
+    _log.debug("Rate limit status: %r resets at %s", hub.rate_limiting, datetime.datetime.fromtimestamp(hub.rate_limiting_resettime))
+    for t in _createsByToken[t]:
+        _h = _getHub(t)
+        _u = _getUserFromHub(_h).login
+        if t in sleepsByToken:
+            _log.info("User %s had %d creates. Last sleep at %d", _u, _createsByToken[t], sleepsByToken[t])
+        else:
+            _log.info("User %s had %d creates. No Last sleep for this user", _u, _createsByToken[t])
     return exitCode
 
 
