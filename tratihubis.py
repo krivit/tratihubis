@@ -1441,7 +1441,7 @@ def main(argv=None):
     else:
         _log.info("No issues created")
     _log.debug("Rate limit status: %r resets at %s", hub.rate_limiting, datetime.datetime.fromtimestamp(hub.rate_limiting_resettime))
-    for t in _createsByToken[t]:
+    for t in _createsByToken:
         _h = _getHub(t)
         _u = _getUserFromHub(_h).login
         if t in sleepsByToken:
