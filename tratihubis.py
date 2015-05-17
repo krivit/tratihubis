@@ -1069,7 +1069,7 @@ def migrateTickets(hub, repo, defaultToken, ticketsCsvPath,
                     if ticketMap['status'] == 'closed':
                         _log.info(u'  close issue')
                         if not pretend:
-                            issue.edit(labels=labels, state='closed')
+                            _issue.edit(labels=labels, state='closed')
                     elif not pretend:
                         _issue.edit(labels=labels)
                 elif ticketMap['status'] == 'closed':
