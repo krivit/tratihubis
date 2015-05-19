@@ -29,10 +29,13 @@ class Translator(object):
             [r"'''(.+)'''", r'*\1*'],
             [r"''(.+)''", r'_\1_'],
             # These next 2 are various bulleted or numbered lists
-            # Note though that they are only single space indents
+            # This next should probably be beginning-of-line, not beginning-of-field
+            # So need to give the MULTILINE, M flag re.M. Or change ^ to \n
             [r"^\s\*", r'*'],
-            [r"^\s\d\.", r'#'],
-            # This next looks like it tries to strip leading !
+            # Hmm. This next rule turns any #d list at start of field into a header. That makes no sense
+            # Probably '\s\d.\s' changed to '\d.\s' is better
+#            [r"^\s\d\.", r'#'],
+            # This next looks like it tries to strip leading !, getting rid of wikilink escapes
             [r"!(\w)", r"\1"],
             #            [r"(^|\n)[ ]{6,}", r"\1"], # AH: This stripped leading whitespace from lines, which messes up block quotes
             [r"\[([^\s\n\,\]\.\(\)]{6,}?)\s{1,}([^\n]+?)\]", r"[\2](\1)"],
@@ -48,7 +51,9 @@ class Translator(object):
             [r'\[changeset:"(\S*?)\/fipy"\]', r"\1"],          
             [r'\^([0-9]{1,5})\^', r"<sup>\1</sup>"],
             [r'diff:@([0-9]{1,5}):([0-9]{1,5})', r'[diff:@\1:\2]({trac_url}/changeset?new=\2&old=\1)'.format(trac_url=self.trac_url)],
-            [r"\[([^\[\]\s\n\r\E\"\{][^\[\]\s\n\r\"\{]+)\s+([^\]]+)]", r"[\2](\1)"]
+            #[r"\[([^\[\]\s\n\r\E\"\{][^\[\]\s\n\r\"\{]+)\s+([^\]]+)]", r"[\2](\1)"]
+            # Try to exclude things that are used in apache error logs
+            [r"\[(?!Thu|Mon|Tue|Wed|Fri|Sat|Sun|client|Last|Native)([^\]\[\{E\s\n\r\t\"\'][^\]\[\{\s\n\r\"\'\t]+)\s+([^\]]+)]", r"[\2](\1)"]
             ]
 
         # AH: Last one converts wiki links [URL text] to markdown links [text](URL)
