@@ -46,7 +46,7 @@ class Translator(object):
             [r"source:([\w/\.\-\_\d\~]+)", r"[\1](../tree/master/\1)"],
             [r"blog:(\w*)", r"[blog:\1]({trac_url}/blog/\1)".format(trac_url=self.trac_url)],
             [r"(\b)([0-9a-f]{5,40})\.", r"\1\2"],
-            [r" (\w*?)::", r"#### \1"],
+            [r" (\w*?)::[\s\n\r]+", r"####\n \1"], # Is this meant for a definition list?
             [r"\[([0-9]{1,4})\/(.+?)\]", r"[\1/\2]({trac_url}/changeset/\1/historical/\2)".format(trac_url=self.trac_url)],
             [r'\[changeset:"(\S*?)\/fipy"\]', r"\1"],          
             [r'\^([0-9]{1,5})\^', r"<sup>\1</sup>"],
