@@ -685,9 +685,13 @@ def migrateTickets(hub, repo, defaultToken, ticketsCsvPath,
 
     # How many issues are created before sleeping,
     # or how many creates of anything by a given token before sleeping
-    createsBeforeSleep = 20
+#    createsBeforeSleep = 20
+# If all your users are whitelisted, no need to sleep
+    createsBeforeSleep = 2000
     # If the above # is hit, how long in seconds to sleep
-    secondsToSleep = 50
+#    secondsToSleep = 50
+# If all your users are whitelisted, no need to sleep
+    secondsToSleep = 1
 
     _log.debug("Doing getuser")
     baseUserO = _getUserFromHub(hub)
@@ -769,7 +773,9 @@ def migrateTickets(hub, repo, defaultToken, ticketsCsvPath,
                     sleepsByToken[t] = _createsByToken[t]
                     break
             if not didSleep and createdCount > 0 and not pretend:
-                time.sleep(2)
+                # If all your users are whitelisted by github support, no need to sleep
+                pass
+#                time.sleep(2)
 
         ticketId = ticketMap['id']
         # FIXME: This probably doesn't do the right thing if the issues to convert doesn't start with 1
@@ -1061,7 +1067,8 @@ def migrateTickets(hub, repo, defaultToken, ticketsCsvPath,
                 # useLogin it should be)
                 if useLogin and githubAssignee:
                     _repo = _getRepoNoUser(_hubOwner, '{0}/{1}'.format(repo.owner.login, repo.name))
-                    _issue = _getIssueFromRepo(_repo,issue.number)
+                    if not pretend:
+                        _issue = _getIssueFromRepo(_repo,issue.number)
                 else:
                     _issue = issue
                 if len(labels) > 0:
@@ -1285,7 +1292,7 @@ def _getRepoNoUser(hub, repoName):
     if repoName not in _reposByName:
         # For some reason we fall in here relatively often. I suspect it is because
         # The hub instances are for different ticket reporters
-        _log.debug("Looking up repo %s", repoName)
+        _log.debug("Looking up repo %s as %s", repoName, _getUserFromHub(hub).login)
         repo = hub.get_repo(repoName)
         _reposByName[repoName] = repo
         _reposNoUserByHub[hub] = _reposByName
