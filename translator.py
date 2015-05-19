@@ -41,7 +41,7 @@ class Translator(object):
             # This next looks like it tries to strip leading !, getting rid of wikilink escapes
             [r"!(\w)", r"\1"],
             #            [r"(^|\n)[ ]{6,}", r"\1"], # AH: This stripped leading whitespace from lines, which messes up block quotes
-            [r"\[([^\s\n\,\]\.\(\)]{6,}?)\s{1,}([^\n]+?)\]", r"[\2](\1)"],
+#            [r"\[([^\s\n\,\]\.\(\)]{6,}?)\s{1,}([^\n]+?)\]", r"[\2](\1)"],
             # This next line turns hashes into links. Require at least 15 chars to avoid mistaken links
             [r"(\s+|\()(changeset:|commit:|:)?([0-9a-f]{15,})([^0-9a-f\-])", r"\1[\3]({repo_url}/commit/\3)\4".format(repo_url=self.repo_url)],
             [r"source:branches/([\w\-]*)", r"[\1](../tree/\1)"],
@@ -50,7 +50,8 @@ class Translator(object):
             [r"blog:(\w*)", r"[blog:\1]({trac_url}/blog/\1)".format(trac_url=self.trac_url)],
             [r"(\b)([0-9a-f]{5,40})\.", r"\1\2"],
             [r" (\w*?)::[\s\n\r]+", r"####\n \1"], # Is this meant for a definition list?
-            [r"\[([0-9]{1,4})\/(.+?)\]", r"[\1/\2]({trac_url}/changeset/\1/historical/\2)".format(trac_url=self.trac_url)],
+            # I cannot figure out what this next one is used for, in that I cannot find a link like this
+            # [r"\[([0-9]{1,4})\/(.+?)\]", r"[\1/\2]({trac_url}/changeset/\1/historical/\2)".format(trac_url=self.trac_url)],
             [r'\[changeset:"(\S*?)\/fipy"\]', r"\1"],          
             [r'\^([0-9]{1,5})\^', r"<sup>\1</sup>"],
             [r'diff:@([0-9]{1,5}):([0-9]{1,5})', r'[diff:@\1:\2]({trac_url}/changeset?new=\2&old=\1)'.format(trac_url=self.trac_url)],
