@@ -55,8 +55,8 @@ class Translator(object):
             [r'\^([0-9]{1,5})\^', r"<sup>\1</sup>"],
             [r'diff:@([0-9]{1,5}):([0-9]{1,5})', r'[diff:@\1:\2]({trac_url}/changeset?new=\2&old=\1)'.format(trac_url=self.trac_url)],
             #[r"\[([^\[\]\s\n\r\E\"\{][^\[\]\s\n\r\"\{]+)\s+([^\]]+)]", r"[\2](\1)"]
-            # Try to exclude things that are used in apache error logs
-            [r"\[(?!Thu|Mon|Tue|Wed|Fri|Sat|Sun|client|Last|Native)([^\]\[\{E\s\n\r\t\"\'][^\]\[\{\s\n\r\"\'\t]+)\s+([^\]]+)]", r"[\2](\1)"]
+            # Try to exclude things that are used in apache error logs or access logs
+            [r"\[(?!Thu|Mon|Tue|Wed|Fri|Sat|Sun|client|Last|Native|\d\d\/)([^\]\[\{E\s\n\r\t\"\'][^\]\[\{\s\n\r\"\'\t]+)\s+([^\]]+)]", r"[\2](\1)"]
             ]
 
         # AH: Last one converts wiki links [URL text] to markdown links [text](URL)
