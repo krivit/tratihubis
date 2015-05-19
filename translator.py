@@ -28,6 +28,9 @@ class Translator(object):
             # These next are italics, bold
             [r"'''(.+)'''", r'*\1*'],
             [r"''(.+)''", r'_\1_'],
+            # This was an attempt to avoid converting things that shouldnt, but not quite there yet
+#            [r"'''([^\]\'\s\n\,\}\=].*[^\]\'\s\n\,\}\=])'''", r'*\1*'],
+#            [r"''([^\]\'\s\n\,\}\=](?!\'\').*(?!\'\')[^\]\'\s\n\,\}\=])''", r'_\1_'],
             # These next 2 are various bulleted or numbered lists
             # This next should probably be beginning-of-line, not beginning-of-field
             # So need to give the MULTILINE, M flag re.M. Or change ^ to \n
