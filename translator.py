@@ -63,8 +63,22 @@ class Translator(object):
         # AH: Last one converts wiki links [URL text] to markdown links [text](URL)
         # piece at beginning excludes things that start with certain characters. Then it says rest of target may not
         # have certain characters
-        regex = r"ticket:([0-9]{1,3})"
-        sub = lambda m: r"issue #{0}".format(self.ticketsToIssuesMap[int(m.group(1))])
+
+        # This one handles links to tickets not inside square brackets
+        # ticket:123
+        # or
+        #   (ticket:123)
+        # becomes: issue #123
+        regex = r"(\s|[^\]]\()ticket:([0-9]{1,4})"
+        sub = lambda m: r"{0}issue #{1}".format(m.group(1), self.ticketsToIssuesMap[int(m.group(2))])
+        subs.append([regex, sub])
+        # Handle something like [linkname](ticket:123): Make it [linkname](123)
+        regex = r"(\]\()ticket:([0-9]{1,4})"
+        sub = lambda m: r"{0}{1}".format(m.group(1), self.ticketsToIssuesMap[int(m.group(2))])
+        subs.append([regex, sub])
+        # This one handles links to tickets inside square brackets: [ticket:123], making it [http://github.com/owner/repo/issues/123]
+        regex = r"\[ticket:([0-9]{1,4})\]"
+        sub = lambda m: r"\[{repo_url}/issues/{0}\]".format(self.ticketsToIssuesMap[int(m.group(1))], repo_url=self.repo_url)
         subs.append([regex, sub])
 
         return [[re.compile(r, re.DOTALL), s] for r, s in subs]
