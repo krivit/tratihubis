@@ -41,7 +41,7 @@ Then run::
 This tests that the input data and Github information is valid and writes a log to the console describing
 which operations would be performed.
 
-To actually create the Github issues, you need to enable to command line option ``--really``::
+To actually create the Github issues, you need to enable the command line option ``--really``::
 
   $ tratihubis --really ~/mytool/tratihubis.cfg
 
@@ -49,6 +49,12 @@ Be aware that Github issues and milestones cannot be deleted in case you mess up
 remove the whole repository and start anew. So make sure that tratihubis does what you want before you
 enable ``--really``. A good practice would be to do a practice import into a junk repository, check that you like the results, then delete that
 repository and redo it using your real repository.
+
+For large imports, you may run into Github abuse prevention limits. Contact Github support to have your account temporarily whitelisted. 
+Or tune the sleeps sprinkled in this code that are intended to avoid those limits.
+
+A large import may fail partway through. Use the --skipExisting option to pick up where you left off, and go back and manually edit the last 
+issue which may have been created but not completed.
 
 Mapping users
 -------------
@@ -61,7 +67,7 @@ In case there are multiple Trac users, you can map them to different Github toke
 
    users = johndoe: johndoe_token, *: another_token, sally: *
 
-This maps the Trac user ``ohndoe` using John Doe's Github token and everyone else to
+This maps the Trac user `johndoe` using John Doe's Github token and everyone else to
 `another_token`. Sally is mapped to default token as specified with the `token` option above,
 which in this example is `my_github_token`.
 
@@ -111,7 +117,7 @@ between quotes::
 
   labels = type="software defect": bug
 
-This script will also support labels of type `priority` and `keyword` matching the corresponding Trac field.
+This script will also support labels of type `priority` and `keyword` matching the corresponding Trac fields.
 
 ``IMPORTANT``: You must pre-create all the above labels in Github for the import to complete.
 
@@ -158,7 +164,10 @@ Github issues and comments have the current time as time stamp instead of the ti
 The due date of Trac milestones is not migrated to Github milestones, so when the conversion is done, you
 have to set it manually. Similarly, closed milestones will not be closed.
 
-Trac milestones without any tickets are not converted to Github milestone.
+Trac milestones without any tickets are not converted to Github milestones.
+
+Note that Github is working on an issue import API. When available, that will likely be a better option. It will
+support importing original creation dates, and a bulk import that is both faster and avoids the abuse prevention limits.
 
 Support
 =======
@@ -188,11 +197,14 @@ Changes
   * And export CC list, keywords, priority
  * Add support for labels from keywords, priorities
  * Add option `--skipExisting` to skip tickets whose # conflicts with a pre-existing issue / pull request.
- * Watch the Github rate limit and sleep until the reset time if needed.
+ * Watch the Github rate limit and sleep until the reset time if needed. Also sleep N seconds after every M
+   creates by a given token, plus another couple seconds per issue. All to avoid the Github abuse prevention mechanisms.
+   Better to get your usernames whitelisted if you are doing a large import.
  * Include the CC list (minus email domain) in comments
  * Work on including the proper Github user login and having the proper Github user be the reporter / assignee.
  * Cache all Github API objects, optionally calling update() if you specify --updateObjects
  * New config option `ticketToStartAt` to support resuming an import
+ * Combine applying labels with closing issues into a single API call.
 
 Version 1.0, 2014-06-14
 
@@ -685,13 +697,13 @@ def migrateTickets(hub, repo, defaultToken, ticketsCsvPath,
 
     # How many issues are created before sleeping,
     # or how many creates of anything by a given token before sleeping
-#    createsBeforeSleep = 20
-# If all your users are whitelisted, no need to sleep
-    createsBeforeSleep = 2000
+    createsBeforeSleep = 20
+# If all your users are whitelisted by github support, no need to sleep
+#    createsBeforeSleep = 2000
     # If the above # is hit, how long in seconds to sleep
-#    secondsToSleep = 50
+    secondsToSleep = 50
 # If all your users are whitelisted, no need to sleep
-    secondsToSleep = 1
+#    secondsToSleep = 1
 
     _log.debug("Doing getuser")
     baseUserO = _getUserFromHub(hub)
@@ -774,8 +786,8 @@ def migrateTickets(hub, repo, defaultToken, ticketsCsvPath,
                     break
             if not didSleep and createdCount > 0 and not pretend:
                 # If all your users are whitelisted by github support, no need to sleep
-                pass
-#                time.sleep(2)
+                #pass
+                time.sleep(2)
 
         ticketId = ticketMap['id']
         # FIXME: This probably doesn't do the right thing if the issues to convert doesn't start with 1

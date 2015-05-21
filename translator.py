@@ -2,7 +2,7 @@ import re
 
 class Translator(object):
     """
-    Simple regular expression to convert Trac wiki to Github markdown.
+    Simple regular expressions to convert Trac wiki to Github markdown.
     """
     def __init__(self, repo, ticketsToIssuesMap, trac_url=None, attachmentsPrefix=None):
         self.repo_url = r'https://github.com/{login}/{name}'.format(login=repo.owner.login, name=repo.name)
@@ -60,7 +60,7 @@ class Translator(object):
             [r"\[(?!Thu|Mon|Tue|Wed|Fri|Sat|Sun|client|Last|Native|\d\d\/)([^\]\[\{E\s\n\r\t\"\'][^\]\[\{\s\n\r\"\'\t]+)\s+([^\]]+)]", r"[\2](\1)"]
             ]
 
-        # AH: Last one converts wiki links [URL text] to markdown links [text](URL)
+        # Last one converts wiki links [URL text] to markdown links [text](URL)
         # piece at beginning excludes things that start with certain characters. Then it says rest of target may not
         # have certain characters
 

@@ -18,14 +18,16 @@ Edits for GENI-NSF use:
    priorities, and CC list.
  - Support labels from keywords and priorities.
  - Add option `--skipExisting`: If there are existing tickets or pull requests, skip importing
-   those tickets.
+   those tickets. Useful to pick up where an import left off.
  - Fix up translator from wiki to Markdown to properly convert links,
-   and links to commit messages.
+   and links to commit messages, etc.
  - Try to support logging the name of the github user even when we
    don't have a Github key for them, and try to have the commenter and
    ticket reporter be the right person where possible.
  - Support repositories belonging to an organization, not the user.
  - Watch the Github API rate limit and sleep until the reset time.
+   Add additional pauses during large imports to avoid Github abuse
+   prevention limits (not entirely successfully).
  - Include Trac CC list in ticket comment (stripping email domain from
    the CC list).
  - Change print statements to log messages.
@@ -45,9 +47,22 @@ bottom click the link to save it as CSV.
 2) Write a tratihubis config file
 See sample-ticket-export.cfg
 
+3) Configure repository
+ - Create labels for all Trac keywords, resolutions, priorities, and
+ ticket types that you want to preserve
+ - Ensure all users for whom you have tokens and who will be issue
+ creators are listed as collaborators on the repository
+ - Enable issues
+
+Do this for both a practice repository and your real repository.
+
 3) Practice ticket imports
 Run your ticket import into a new / practice repository. Check that it
-works and the new github issues look good. Then delete that repository.
+works and the new github issues look good. Then delete that
+repository.
 
 4) Import tickets
-Run command something like: python ./tratihubis.py ../my-ticket-export.cfg --skipExisting --really
+Run command something like: `python ./tratihubis.py ../my-ticket-export.cfg --skipExisting --really`
+
+Note the use of `--skipExisting` to allow picking up where an
+interrupted import left off.
