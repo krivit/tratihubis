@@ -5,7 +5,10 @@ class Translator(object):
     Simple regular expressions to convert Trac wiki to Github markdown.
     """
     def __init__(self, repo, ticketsToIssuesMap, trac_url=None, attachmentsPrefix=None):
-        self.repo_url = r'https://github.com/{login}/{name}'.format(login=repo.owner.login, name=repo.name)
+        if isinstance(repo, str):
+            self.repo_url = repo
+        else:
+            self.repo_url = r'https://github.com/{login}/{name}'.format(login=repo.owner.login, name=repo.name)
         self.trac_url = trac_url
         self.ticketsToIssuesMap = ticketsToIssuesMap
         self.subs = self.compile_subs()
@@ -64,22 +67,23 @@ class Translator(object):
         # piece at beginning excludes things that start with certain characters. Then it says rest of target may not
         # have certain characters
 
-        # This one handles links to tickets not inside square brackets
-        # ticket:123
-        # or
-        #   (ticket:123)
-        # becomes: issue #123
-        regex = r"(\s|[^\]]\()ticket:([0-9]{1,4})"
-        sub = lambda m: r"{0}issue #{1}".format(m.group(1), self.ticketsToIssuesMap[int(m.group(2))])
-        subs.append([regex, sub])
-        # Handle something like [linkname](ticket:123): Make it [linkname](123)
-        regex = r"(\]\()ticket:([0-9]{1,4})"
-        sub = lambda m: r"{0}{1}".format(m.group(1), self.ticketsToIssuesMap[int(m.group(2))])
-        subs.append([regex, sub])
-        # This one handles links to tickets inside square brackets: [ticket:123], making it [http://github.com/owner/repo/issues/123]
-        regex = r"\[ticket:([0-9]{1,4})\]"
-        sub = lambda m: r"\[{repo_url}/issues/{0}\]".format(self.ticketsToIssuesMap[int(m.group(1))], repo_url=self.repo_url)
-        subs.append([regex, sub])
+        if self.ticketsToIssuesMap:
+            # This one handles links to tickets not inside square brackets
+            # ticket:123
+            # or
+            #   (ticket:123)
+            # becomes: issue #123
+            regex = r"(\s|[^\]]\()ticket:([0-9]{1,4})"
+            sub = lambda m: r"{0}issue #{1}".format(m.group(1), self.ticketsToIssuesMap[int(m.group(2))])
+            subs.append([regex, sub])
+            # Handle something like [linkname](ticket:123): Make it [linkname](123)
+            regex = r"(\]\()ticket:([0-9]{1,4})"
+            sub = lambda m: r"{0}{1}".format(m.group(1), self.ticketsToIssuesMap[int(m.group(2))])
+            subs.append([regex, sub])
+            # This one handles links to tickets inside square brackets: [ticket:123], making it [http://github.com/owner/repo/issues/123]
+            regex = r"\[ticket:([0-9]{1,4})\]"
+            sub = lambda m: r"\[{repo_url}/issues/{0}\]".format(self.ticketsToIssuesMap[int(m.group(1))], repo_url=self.repo_url)
+            subs.append([regex, sub])
 
         return [[re.compile(r, re.DOTALL), s] for r, s in subs]
 
@@ -92,13 +96,14 @@ class Translator(object):
         return subs
 
     def translate(self, text, ticketId=''):
-        subs = self.no_compile_subs(ticketId)
-        for r, s in subs:
-            p = re.compile(r, re.DOTALL)
-            #ot = text
-            text = p.sub(s, text)
-            #if ot != text:
-            #    print "regex '%s' changed \n'%s' to \n'%s'" % (r, ot, text)
+        if ticketId and ticketId != '':
+            subs = self.no_compile_subs(ticketId)
+            for r, s in subs:
+                p = re.compile(r, re.DOTALL)
+                #ot = text
+                text = p.sub(s, text)
+                #if ot != text:
+                #    print "regex '%s' changed \n'%s' to \n'%s'" % (r, ot, text)
         for p, s in self.subs:
             #ot = text
             text = p.sub(s, text)
