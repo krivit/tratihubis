@@ -67,6 +67,7 @@
             <arg value="--max-line-length=119" />
             <arg file="setup.py" />
             <arg file="tratihubis.py" />
+            <arg file="tracwiki2githubmd.py" />
             <arg file="test/test_tratihubis.py" />
             <redirector output="pep8.txt" />
         </exec>
@@ -80,6 +81,7 @@
             <arg value="E126,E127,E128,E501" />
             <arg file="setup.py" />
             <arg file="tratihubis.py" />
+            <arg file="tracwiki2githubmd.py" />
             <arg file="test/test_tratihubis.py" />
             <redirector output="pep8.txt" />
         </exec>
