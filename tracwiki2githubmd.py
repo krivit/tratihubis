@@ -66,5 +66,5 @@ class Translator(object):
         return text
 
 class NullTranslator(Translator):
-    def translate(self, text):
+    def translate(self, text, ticketId=''):
         return text
