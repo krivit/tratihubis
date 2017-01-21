@@ -248,7 +248,7 @@ import token
 import tokenize
 import datetime
 
-from translator import Translator, NullTranslator
+from tracwiki2githubmd import Translator, NullTranslator
 
 _log = logging.getLogger('tratihubis')
 
