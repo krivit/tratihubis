@@ -251,6 +251,8 @@ import datetime
 from tracwiki2githubmd import Translator, NullTranslator
 
 _log = logging.getLogger('tratihubis')
+hub = None
+
 
 __version__ = "1.0"
 
@@ -587,7 +589,7 @@ def createTicketsToIssuesMap(ticketsCsvPath, existingIssues, firstTicketIdToConv
 
     return ticketsToIssuesMap
 
-def migrateTickets(hub, repo, defaultToken, ticketsCsvPath,
+def migrateTickets(repo, defaultToken, ticketsCsvPath,
                    commentsCsvPath=None, attachmentsCsvPath=None,
                    firstTicketIdToConvert=1, lastTicketIdToConvert=0,
                    labelMapping=None, userMapping="*:*",
@@ -634,9 +636,8 @@ def migrateTickets(hub, repo, defaultToken, ticketsCsvPath,
             body = ticketMap['description']
             tracOwner = ticketMap['reporter'].strip()
             token = _tokenFor(hub, tracToGithubUserMap, tracOwner)
-            _hub = github.Github(token)
-            _repo = _hub.get_repo('{0}/{1}'.format(repo.owner.login, repo.name))
-            githubAssignee = _hub.get_user()
+            _repo = hub.get_repo('{0}/{1}'.format(repo.owner.login, repo.name))
+            githubAssignee = hub.get_user(token)
             milestoneTitle = ticketMap['milestone'].strip()
             if len(milestoneTitle) != 0:
                 if milestoneTitle not in existingMilestones:
@@ -680,8 +681,8 @@ def migrateTickets(hub, repo, defaultToken, ticketsCsvPath,
                 issue = _FakeIssue(fakeIssueId, title, body, 'open')
                 fakeIssueId += 1
 
-            _log.info(u'  issue #%s: owner=%s-->%s; milestone=%s (%d)',
-                    issue.number, tracOwner, githubAssignee.name, milestoneTitle, milestoneNumber)
+            _log.info(u'  issue #%s: owner=%s-->%s (%s); milestone=%s (%d)',
+                      issue.number, tracOwner, githubAssignee.name, githubAssignee.login, milestoneTitle, milestoneNumber)
 
 
             labels = []
@@ -695,8 +696,7 @@ def migrateTickets(hub, repo, defaultToken, ticketsCsvPath,
                 for l in labels:
                     _addNewLabel(l, repo)
             if len(labels) > 0:
-                _hub = github.Github(defaultToken)
-                _repo = _hub.get_repo('{0}/{1}'.format(repo.owner.login, repo.name))
+                _repo = hub.get_repo('{0}/{1}'.format(repo.owner.login, repo.name))
                 _issue = _repo.get_issue(issue.number)
                 _issue.edit(labels=labels)
                 
@@ -721,8 +721,7 @@ def migrateTickets(hub, repo, defaultToken, ticketsCsvPath,
                 for comment in commentsToAdd:
                     token = _tokenFor(repo, tracToGithubUserMap, comment['author'], False)
                     commentAuthor = _userFor(token)
-                    _hub = github.Github(token)
-                    _repo = _hub.get_repo('{0}/{1}'.format(repo.owner.login, repo.name))
+                    _repo = hub.get_repo('{0}/{1}'.format(repo.owner.login, repo.name))
 
 
                     
@@ -779,8 +778,7 @@ def _validateGithubUser(hub, tracUser, token):
     if token not in _validatedGithubTokens:
         try:
             _log.debug(u'  check for token "%s"', token)
-            _hub = github.Github(token)
-            githubUser = _hub.get_user()
+            githubUser = hub.get_user(token)
             _log.debug(u'  user is "%s"',)
         except:
             # FIXME: After PyGithub API raises a predictable error, use  "except WahteverException".
@@ -831,8 +829,7 @@ def _tokenFor(hub, tracToGithubUserMap, tracUser, validate=True):
     return result
 
 def _userFor(token):
-    _hub = github.Github(token)
-    return _hub.get_user()
+    return hub.get_user(token)
 
 def main(argv=None):
     if argv is None:
@@ -872,12 +869,13 @@ def main(argv=None):
         if not options.really:
             _log.warning(u'no actions are performed unless command line option --really is specified')
 
+        global hub
         hub = github.Github(token)
         _log.info(u'log on to github as user "%s"', hub.get_user().login)
         repo = hub.get_user().get_repo(repoName)
         _log.info(u'connect to github repo "%s"', repoName)
 
-        migrateTickets(hub, repo, token, ticketsCsvPath,
+        migrateTickets(repo, token, ticketsCsvPath,
                        commentsCsvPath, attachmentsCsvPath,
                        userMapping=userMapping,
                        labelMapping=labelMapping,
