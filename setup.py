@@ -52,7 +52,7 @@ import tratihubis
 setup(
     name='tratihubis',
     version=tratihubis.__version__,
-    py_modules=['tratihubis'],
+    py_modules=['tratihubis','translator'],
     description='convert Trac tickets to Github issues',
     keywords='trac github ticket issue convert migrate',
     author='Thomas Aglassinger',
