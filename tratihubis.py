@@ -279,6 +279,8 @@ import github
 import logging
 import optparse
 import os.path
+import shutil
+import hashlib
 import StringIO
 import sys
 import time
@@ -533,10 +535,10 @@ def _tracTicketMaps(ticketsCsvPath):
                     'resolution': row[6],
                     'summary': row[7],
                     'description': row[8],
-#                    'createdtime': datetime.datetime.fromtimestamp(long(row[9])),
-#                    'modifiedtime': datetime.datetime.fromtimestamp(long(row[10])),
-                    'createdtime': dateutil.parser.parse(str(row[9])),
-                    'modifiedtime': dateutil.parser.parse(str(row[10])),
+                    'createdtime': datetime.datetime.fromtimestamp(long(row[9])),
+                    'modifiedtime': datetime.datetime.fromtimestamp(long(row[10])),
+                    # 'createdtime': dateutil.parser.parse(str(row[9])),
+                    # 'modifiedtime': dateutil.parser.parse(str(row[10])),
                     'component': row[11],
                     'priority': row[12],
                     'keywords': row[13],
@@ -597,8 +599,8 @@ def _createTicketToCommentsMap(commentsCsvPath):
                 if hasReadHeader:
                     commentMap = {
                         'id': long(row[0]),
-#                        'date': datetime.datetime.fromtimestamp(long(row[1])),
-                        'date': dateutil.parser.parse(str(row[1])),
+                        'date': datetime.datetime.fromtimestamp(long(row[1])),
+                        # 'date': dateutil.parser.parse(str(row[1])),
                         'author': row[2],
                         'body': row[3],
                     }
@@ -619,7 +621,7 @@ def is_int(s):
     except ValueError:
         return False
 
-def _createTicketsToAttachmentsMap(attachmentsCsvPath, attachmentsPrefix):
+def _createTicketsToAttachmentsMap(attachmentsCsvPath, attachmentsPrefix, tracAttachmentsPrefix):
     EXPECTED_COLUMN_COUNT = 4
     result = {}
 
@@ -648,10 +650,17 @@ def _createTicketsToAttachmentsMap(attachmentsCsvPath, attachmentsPrefix):
                     'id': long(id_string),
                     'author': row[3],
                     'filename': row[1],
-#                    'date': datetime.datetime.fromtimestamp(long(row[2])),
-                    'date': dateutil.parser.parse(str(row[2])),
+                    'date': datetime.datetime.fromtimestamp(long(row[2])),
+                    # 'date': dateutil.parser.parse(str(row[2])),
                     'fullpath': u'%s/%s/%s' % (attachmentsPrefix, row[0], row[1]),
                     }
+                    if tracAttachmentsPrefix:
+                        attachmentMap['tracpath'] = u'%s/%s/%s/%s%s' % (tracAttachmentsPrefix,
+                                                                         hashlib.sha1(row[0].encode('utf-8')).hexdigest()[0:3],
+                                                                         hashlib.sha1(row[0].encode('utf-8')).hexdigest(),
+                                                                         hashlib.sha1(row[1].encode('utf-8')).hexdigest(),
+                                                                         os.path.splitext(attachmentMap['filename'])[1])
+
                     if not attachmentMap['id'] in result:
                         result[attachmentMap['id']] = [attachmentMap]
                     else:
@@ -687,8 +696,10 @@ def migrateTickets(hub, repo, defaultToken, ticketsCsvPath,
                    commentsCsvPath=None, attachmentsCsvPath=None,
                    firstTicketIdToConvert=1, lastTicketIdToConvert=0,
                    labelMapping=None, userMapping="*:*",
-                   attachmentsPrefix=None, pretend=True,
-                   trac_url=None, convert_text=False, ticketsToRender=False, addComponentLabels=False, userLoginMapping="*:*", skipExisting=False):
+                   attachmentsPrefix=None, tracAttachmentsPrefix=None, 
+                   tracAttachmentsPrefixInto=None, 
+                   pretend=True,
+                   trac_url=None, convert_text=False, ticketsToRender=False, addComponentLabels=False, userLoginMapping="*:*", skipExisting=False, saveTicketsToIssues=None):
     
     assert hub is not None
     assert repo is not None
@@ -711,13 +722,15 @@ def migrateTickets(hub, repo, defaultToken, ticketsCsvPath,
     #baseUser = hub.get_user().login
 
     tracTicketToCommentsMap = _createTicketToCommentsMap(commentsCsvPath)
-    tracTicketToAttachmentsMap = _createTicketsToAttachmentsMap(attachmentsCsvPath, attachmentsPrefix)
+    tracTicketToAttachmentsMap = _createTicketsToAttachmentsMap(attachmentsCsvPath, attachmentsPrefix, tracAttachmentsPrefix)
     existingIssues = _createIssueMap(repo)
     existingMilestones = _createMilestoneMap(repo)
     tracToGithubUserMap = _createTracToGithubUserMap(hub, userMapping, defaultToken)
     tracToGithubLoginMap = _createTracToGithubLoginMap(hub, userLoginMapping, baseUser)
     labelTransformations = _LabelTransformations(repo, labelMapping)
     ticketsToIssuesMap = createTicketsToIssuesMap(ticketsCsvPath, existingIssues, firstTicketIdToConvert, lastTicketIdToConvert, skipExisting)
+    if saveTicketsToIssues:
+        open(saveTicketsToIssues, "w").write('\n'.join([str(x[0]) + ' ' + str(x[1]) for x in ticketsToIssuesMap.items()]))
 
     if convert_text:
         Translator_ = Translator
@@ -725,7 +738,18 @@ def migrateTickets(hub, repo, defaultToken, ticketsCsvPath,
         Translator_ = NullTranslator
 
     translator = Translator_(repo, ticketsToIssuesMap, trac_url=trac_url, attachmentsPrefix=attachmentsPrefix)
-        
+
+    if tracAttachmentsPrefixInto:
+        _log.info('Copying trac attachments...')
+        for id, infos in tracTicketToAttachmentsMap.items():
+            for info in infos:
+                fn = info['fullpath'].replace(attachmentsPrefix, tracAttachmentsPrefixInto)
+                _log.info('  for ticket %d, copied file %s to %s' % (id, info['tracpath'], fn))
+                dirs = os.path.dirname(fn)
+                if not os.path.exists(dirs):
+                    os.makedirs(dirs)
+                shutil.copyfile(info['tracpath'], fn)
+    
     def possiblyAddLabel(labels, tracField, tracValue):
         label = labelTransformations.labelFor(tracField, tracValue)
         if label is not None:
@@ -1371,6 +1395,8 @@ def main(argv=None):
         commentsCsvPath = _getConfigOption(config, 'comments', False)
         attachmentsCsvPath = _getConfigOption(config, 'attachments', False)
         attachmentsPrefix = _getConfigOption(config, 'attachmentsprefix', False)
+        tracAttachmentsPrefix = _getConfigOption(config, 'trac_attachmentsprefix', False)
+        tracAttachmentsPrefixInto = _getConfigOption(config, 'trac_attachmentsprefix_into', False)
         labelMapping = _getConfigOption(config, 'labels', False)
         repoName = _getConfigOption(config, 'repo')
         ticketsCsvPath = _getConfigOption(config, 'tickets', False, 'tickets.csv')
@@ -1396,6 +1422,10 @@ def main(argv=None):
                                               required=False,
                                               defaultValue=False,
                                               boolean=True)
+        saveTicketsToIssues = _getConfigOption(config, 'saveTicketMap',
+                                               required=False,
+                                               defaultValue=None,
+                                               boolean=False)
 
         if ticketToStartAt:
             ticketToStartAt = long(ticketToStartAt)
@@ -1438,10 +1468,12 @@ def main(argv=None):
                        commentsCsvPath, attachmentsCsvPath, firstTicketIdToConvert=ticketToStartAt,
                        userMapping=userMapping,
                        labelMapping=labelMapping,
-                       attachmentsPrefix=attachmentsPrefix, 
+                       attachmentsPrefix=attachmentsPrefix,
+                       tracAttachmentsPrefix=tracAttachmentsPrefix,
+                       tracAttachmentsPrefixInto=tracAttachmentsPrefixInto,
                       pretend=not options.really,
                        trac_url=trac_url, convert_text=convert_text, ticketsToRender=ticketsToRender, addComponentLabels=addComponentLabels, userLoginMapping=userLoginMapping,
-                       skipExisting=options.skipExisting)
+                       skipExisting=options.skipExisting, saveTicketsToIssues=saveTicketsToIssues)
         
         exitCode = 0
     except (EnvironmentError, OSError, _ConfigError, _CsvDataError), error:
