@@ -73,7 +73,7 @@ class Translator(object):
             # or
             #   (ticket:123)
             # becomes: issue #123
-            regex = r"(\s|[^\]]\()ticket:([0-9]{1,4})"
+            regex = r"(\s|[^\]]\()ticket:([0-9]{1,5})"
             sub = lambda m: r"{0}issue #{1}".format(m.group(1), self.ticketsToIssuesMap[int(m.group(2))])
             subs.append([regex, sub])
             # Handle something like [linkname](ticket:123): Make it [linkname](123)
