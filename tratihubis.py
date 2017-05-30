@@ -697,7 +697,8 @@ def migrateTickets(hub, repo, defaultToken, ticketsCsvPath,
                    firstTicketIdToConvert=1, lastTicketIdToConvert=0,
                    labelMapping=None, userMapping="*:*",
                    attachmentsPrefix=None, tracAttachmentsPrefix=None, 
-                   tracAttachmentsPrefixInto=None, 
+                   tracAttachmentsPrefixInto=None,
+                   legacyInfoFirst=False,
                    pretend=True,
                    trac_url=None, convert_text=False, ticketsToRender=False, addComponentLabels=False, userLoginMapping="*:*", skipExisting=False, saveTicketsToIssues=None):
     
@@ -889,7 +890,7 @@ def migrateTickets(hub, repo, defaultToken, ticketsCsvPath,
             if trac_url:
                 ticket_url = '/'.join([trac_url, 'ticket', str(ticketId)])
                 ticketString = '[{0}]({1})'.format(ticketString, ticket_url)
-            legacyInfo = u"\n\n _Imported from trac ticket %s,  created by %s on %s, last modified: %s_\n" \
+            legacyInfo = u"\n\n _Imported from trac ticket %s,  created by **%s** on %s, last modified: %s_\n" \
                          % (ticketString, ticketMap['reporter'], ticketMap['createdtime'].strftime(dateformat),
                          ticketMap['modifiedtime'].strftime(dateformat))
             if ticketMap['cc'] and str(ticketMap['cc']).strip() != "":
@@ -902,7 +903,8 @@ def migrateTickets(hub, repo, defaultToken, ticketsCsvPath,
                     _log.debug("Edited ccList from '%s' to '%s'", ccList, ccListNew)
                 legacyInfo += u"   CCing: %s" % ccListNew
 
-            body += legacyInfo
+            if legacyInfoFirst: body = legacyInfo + '\n\n' + body
+            else: body += legacyInfo
 
             if ticketsToRender:
                 _log.info(u'body of ticket:\n%s', body)
@@ -1055,11 +1057,17 @@ def migrateTickets(hub, repo, defaultToken, ticketsCsvPath,
                     #_repo = _hub.get_repo('{0}/{1}'.format(repo.owner.login, repo.name))
                     
                     if commentAuthorLogin and commentAuthorLogin != baseUser:
-                        commentBody = u"%s\n\n_Trac comment by %s (github user: %s) on %s_\n" % (comment['body'], comment['author'], commentAuthorLogin, comment['date'].strftime(dateformat))
+                        if legacyInfoFirst:
+                            commentBody = u"_Trac comment by **%s** (github user: **%s**) on %s_\n\n%s\n" % (comment['author'], commentAuthorLogin, comment['date'].strftime(dateformat), comment['body'])
+                        else:
+                            commentBody = u"%s\n\n_Trac comment by **%s** (github user: ***%s**) on %s_\n" % (comment['body'], comment['author'], commentAuthorLogin, comment['date'].strftime(dateformat))
                         
                         _log.info(u'  add comment by %s: %r', commentAuthorLogin, _shortened(commentBody))
                     else:
-                        commentBody = u"%s\n\n_Trac comment by %s on %s_\n" % (comment['body'], comment['author'], comment['date'].strftime(dateformat))
+                        if legacyInfoFirst:
+                            commentBody = u"_Trac comment by **%s** on %s_\n\n%s\n" % (comment['author'], comment['date'].strftime(dateformat), comment['body'])
+                        else:
+                            commentBody = u"%s\n\n_Trac comment by **%s** on %s_\n" % (comment['body'], comment['author'], comment['date'].strftime(dateformat))
 
                         _log.info(u'  add comment by %s: %r', commentAuthor.login, _shortened(commentBody))
 
@@ -1426,6 +1434,10 @@ def main(argv=None):
                                                required=False,
                                                defaultValue=None,
                                                boolean=False)
+        legacyInfoFirst = _getConfigOption(config, 'legacyInfoFirst',
+                                             required=False,
+                                             defaultValue=False,
+                                             boolean=True)
 
         if ticketToStartAt:
             ticketToStartAt = long(ticketToStartAt)
@@ -1471,7 +1483,8 @@ def main(argv=None):
                        attachmentsPrefix=attachmentsPrefix,
                        tracAttachmentsPrefix=tracAttachmentsPrefix,
                        tracAttachmentsPrefixInto=tracAttachmentsPrefixInto,
-                      pretend=not options.really,
+                       legacyInfoFirst=legacyInfoFirst,
+                       pretend=not options.really,
                        trac_url=trac_url, convert_text=convert_text, ticketsToRender=ticketsToRender, addComponentLabels=addComponentLabels, userLoginMapping=userLoginMapping,
                        skipExisting=options.skipExisting, saveTicketsToIssues=saveTicketsToIssues)
         
