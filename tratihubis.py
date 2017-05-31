@@ -890,7 +890,14 @@ def migrateTickets(hub, repo, defaultToken, ticketsCsvPath,
             if trac_url:
                 ticket_url = '/'.join([trac_url, 'ticket', str(ticketId)])
                 ticketString = '[{0}]({1})'.format(ticketString, ticket_url)
-            legacyInfo = u"\n\n _Imported from trac ticket %s,  created by **%s** on %s, last modified: %s_\n" \
+            reportAuthorLogin = _loginFor(tracToGithubLoginMap, ticketMap['reporter'])
+            _log.info("  reported by %s, who maps to %s on GitHub" % (ticketMap['reporter'], reportAuthorLogin))
+            if reportAuthorLogin:
+                legacyInfo = u"\n\n _Imported from trac ticket %s,  created by **%s** (GitHub user: **%s**) on %s, last modified: %s_\n" \
+                         % (ticketString, ticketMap['reporter'], reportAuthorLogin, ticketMap['createdtime'].strftime(dateformat),
+                         ticketMap['modifiedtime'].strftime(dateformat))
+            else:
+                legacyInfo = u"\n\n _Imported from trac ticket %s,  created by **%s** on %s, last modified: %s_\n" \
                          % (ticketString, ticketMap['reporter'], ticketMap['createdtime'].strftime(dateformat),
                          ticketMap['modifiedtime'].strftime(dateformat))
             if ticketMap['cc'] and str(ticketMap['cc']).strip() != "":
@@ -1056,11 +1063,11 @@ def migrateTickets(hub, repo, defaultToken, ticketsCsvPath,
                     _repo = _getRepoNoUser(_hub, '{0}/{1}'.format(repo.owner.login, repo.name))
                     #_repo = _hub.get_repo('{0}/{1}'.format(repo.owner.login, repo.name))
                     
-                    if commentAuthorLogin and commentAuthorLogin != baseUser:
+                    if commentAuthorLogin:
                         if legacyInfoFirst:
-                            commentBody = u"_Trac comment by **%s** (github user: **%s**) on %s_\n\n%s\n" % (comment['author'], commentAuthorLogin, comment['date'].strftime(dateformat), comment['body'])
+                            commentBody = u"_Trac comment by **%s** (GitHub user: **%s**) on %s_\n\n%s\n" % (comment['author'], commentAuthorLogin, comment['date'].strftime(dateformat), comment['body'])
                         else:
-                            commentBody = u"%s\n\n_Trac comment by **%s** (github user: ***%s**) on %s_\n" % (comment['body'], comment['author'], commentAuthorLogin, comment['date'].strftime(dateformat))
+                            commentBody = u"%s\n\n_Trac comment by **%s** (GitHub user: ***%s**) on %s_\n" % (comment['body'], comment['author'], commentAuthorLogin, comment['date'].strftime(dateformat))
                         
                         _log.info(u'  add comment by %s: %r', commentAuthorLogin, _shortened(commentBody))
                     else:
@@ -1185,7 +1192,7 @@ def _validateGithubUser(hub, tracUser, token):
             _log.debug("Error from Github API: %s", traceback.format_exc())
             # FIXME: After PyGithub API raises a predictable error, use  "except WahteverException".
             raise _ConfigError(_OPTION_USERS,
-                    u'Trac user "%s" must be mapped to an existing Github users token instead of "%s" = "%s"'
+                    u'Trac user "%s" must be mapped to an existing GitHub users token instead of "%s" = "%s"'
                     % (tracUser, githubUser, token))
         _validatedGithubTokens.add(token)
 
@@ -1249,7 +1256,7 @@ def _loginFor(tracToGithubLoginMap, tracUser):
     if result is None:
         result = tracToGithubLoginMap.get('*')
         if result is None:
-            raise _ConfigError(_OPTION_USERS, u'Trac user "%s" must be mapped to a Github user' % (tracUser,))
+            raise _ConfigError(_OPTION_USERS, u'Trac user "%s" must be mapped to a GitHub user' % (tracUser,))
     return result
 
 def _tokenFor(hub, tracToGithubUserMap, tracUser, validate=True):
@@ -1259,7 +1266,7 @@ def _tokenFor(hub, tracToGithubUserMap, tracUser, validate=True):
     if result is None:
         result = tracToGithubUserMap.get('*')
         if result is None:
-            raise _ConfigError(_OPTION_USERS, u'Trac user "%s" must be mapped to a Github user' % (tracUser,))
+            raise _ConfigError(_OPTION_USERS, u'Trac user "%s" must be mapped to a GitHub user' % (tracUser,))
     if validate:
         _validateGithubUser(hub, tracUser, result)
     return result
