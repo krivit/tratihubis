@@ -288,6 +288,7 @@ import token
 import tokenize
 import datetime
 import dateutil.parser
+import urllib
 
 from translator import Translator, NullTranslator
 
@@ -892,7 +893,7 @@ def migrateTickets(hub, repo, defaultToken, ticketsCsvPath,
                 ticketString = '[{0}]({1})'.format(ticketString, ticket_url)
             reportAuthorLogin = _loginFor(tracToGithubLoginMap, ticketMap['reporter'])
             _log.info("  reported by %s, who maps to %s on GitHub" % (ticketMap['reporter'], reportAuthorLogin))
-            if reportAuthorLogin:
+            if reportAuthorLogin and reportAuthorLogin != baseUser:
                 legacyInfo = u"\n\n _Imported from trac ticket %s,  created by **%s** (GitHub user: **%s**) on %s, last modified: %s_\n" \
                          % (ticketString, ticketMap['reporter'], reportAuthorLogin, ticketMap['createdtime'].strftime(dateformat),
                          ticketMap['modifiedtime'].strftime(dateformat))
@@ -1022,12 +1023,12 @@ def migrateTickets(hub, repo, defaultToken, ticketsCsvPath,
                     #_repo = _hub.get_repo('{0}/{1}'.format(repo.owner.login, repo.name))
                     attachmentAuthorLogin = _loginFor(tracToGithubLoginMap, attachment['author'])
                     if attachmentAuthorLogin and attachmentAuthorLogin != baseUser:
-                        legacyInfo = u"_%s (%s) attached [%s](%s) on %s_\n"  \
-                                     % (attachment['author'], attachmentAuthorLogin, attachment['filename'], attachment['fullpath'], attachment['date'].strftime(dateformat))
+                        legacyInfo = u"_**%s** (GitHub user: **%s**) attached [%s](%s) on %s_\n"  \
+                                     % (attachment['author'], attachmentAuthorLogin, attachment['filename'],  urllib.quote(attachment['fullpath'], "/:"), attachment['date'].strftime(dateformat))
                         _log.info(u'  added attachment from %s', attachmentAuthorLogin)
                     else:
-                        legacyInfo = u"_%s attached [%s](%s) on %s_\n"  \
-                                     % (attachment['author'], attachment['filename'], attachment['fullpath'], attachment['date'].strftime(dateformat))
+                        legacyInfo = u"_**%s** attached [%s](%s) on %s_\n"  \
+                                     % (attachment['author'], attachment['filename'], urllib.quote(attachment['fullpath'], "/:"), attachment['date'].strftime(dateformat))
                         _log.info(u'  added attachment from %s', attachmentAuthor.login)
 
                     if ticketsToRender:
@@ -1063,7 +1064,7 @@ def migrateTickets(hub, repo, defaultToken, ticketsCsvPath,
                     _repo = _getRepoNoUser(_hub, '{0}/{1}'.format(repo.owner.login, repo.name))
                     #_repo = _hub.get_repo('{0}/{1}'.format(repo.owner.login, repo.name))
                     
-                    if commentAuthorLogin:
+                    if commentAuthorLogin and commentAuthorLogin != baseUser:
                         if legacyInfoFirst:
                             commentBody = u"_Trac comment by **%s** (GitHub user: **%s**) on %s_\n\n%s\n" % (comment['author'], commentAuthorLogin, comment['date'].strftime(dateformat), comment['body'])
                         else:
